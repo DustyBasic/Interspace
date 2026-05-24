@@ -176,7 +176,9 @@ def merge_inputs(config: dict[str, Any], base_dir: Path | None = None) -> dict[s
 def _prefix(prefix: str, value: str) -> str:
     if not prefix:
         return value
-    return f"{prefix}:{value}"
+    # `__` (not `:`) so ids stay safe on Windows NTFS, in URLs, and against
+    # Cytoscape selector syntax (which reserves `:` for pseudo-classes).
+    return f"{prefix}__{value}"
 
 
 def merge_from_config(config_path: Path) -> dict[str, Any]:

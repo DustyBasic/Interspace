@@ -336,8 +336,8 @@ edges with missing endpoints are dropped silently (count is reported).
 ```json
 [
   {
-    "source": "live:42",
-    "target": "foundation_a:principle_03",
+    "source": "live__42",
+    "target": "foundation_a__principle_03",
     "kind": "cites",
     "weight": 0.8,
     "meta": {"note": "live finding references this foundation principle"}
