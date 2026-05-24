@@ -34,6 +34,13 @@ _DEFAULT_EXCLUDES = (".*", "*.pyc", "__pycache__", "node_modules", "*.bak")
 _DEFAULT_DENSITY = 3
 _DEFAULT_CLUSTER_DEPTH = 1
 
+# Text-bearing extensions whose content gets paragraph-exploded (when the file
+# is below `--explode-size` and not part of a density-collapsed group).
+_TEXT_EXTS = frozenset({".txt", ".md", ".markdown", ".rst", ".org"})
+_DEFAULT_EXPLODE_SIZE = 100_000  # files larger than this stay atomic
+_MIN_PARAGRAPH_CHARS = 40        # paragraphs shorter than this get dropped (noise)
+_LABEL_MAX = 80
+
 _TIMESTAMP_RE = re.compile(r"^(.+?)_\d{4,8}[_-]?\d{0,6}[A-Z]?$")
 _VERSION_RE = re.compile(r"^(.+?)[._-]v\d+(\.\d+)*$")
 _NUMBERED_RE = re.compile(r"^(\d{2,4})[._-](.+)$")
@@ -63,6 +70,8 @@ def to_interspace_json(
     excludes: tuple[str, ...] = _DEFAULT_EXCLUDES,
     title: str | None = None,
     description: str | None = None,
+    explode_text: bool = True,
+    explode_size: int = _DEFAULT_EXPLODE_SIZE,
 ) -> dict[str, Any]:
     if not root.exists() or not root.is_dir():
         raise FileNotFoundError(f"root directory not found: {root}")
@@ -88,6 +97,18 @@ def to_interspace_json(
             nodes.append(_composite_node(group_files, folder_rel, pattern_key, cluster_id_safe))
         else:
             for f in group_files:
+                ext = _file_ext(f.name)
+                size = f.stat().st_size
+                if (
+                    explode_text
+                    and ext in _TEXT_EXTS
+                    and size <= explode_size
+                ):
+                    paragraph_nodes = _paragraph_nodes(f, folder_rel, cluster_id_safe)
+                    if paragraph_nodes:
+                        nodes.extend(paragraph_nodes)
+                        continue
+                # Fallback: atomic file node
                 nodes.append(_file_node(f, folder_rel, cluster_id_safe))
 
     clusters = [
@@ -235,6 +256,69 @@ def _composite_node(
     }
 
 
+def _paragraph_nodes(
+    f: Path, folder_rel: str, cluster_id: str
+) -> list[dict[str, Any]]:
+    """Split a text file into paragraph nodes. Returns [] if file is unreadable
+    or contains no paragraphs above _MIN_PARAGRAPH_CHARS."""
+    try:
+        content = f.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    rel_path = f"{folder_rel}/{f.name}" if folder_rel else f.name
+    file_stem = f.stem
+    file_mtime_iso = datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat()
+    safe_rel = _safe_id_part(rel_path)
+    paragraphs = _split_paragraphs(content)
+    out: list[dict[str, Any]] = []
+    for idx, para in enumerate(paragraphs):
+        out.append({
+            "id": f"fs.para.{safe_rel}.{idx:03d}",
+            "label": _shorten(para, _LABEL_MAX),
+            "cluster": cluster_id,
+            "tags": ["filesystem", "paragraph", _file_ext(f.name), file_stem],
+            "weight": round(min(2.0, 0.6 + math.log10(max(1.0, len(para) / 200.0)) * 0.5), 2),
+            "meta": {
+                "kind": "paragraph",
+                "source_file": rel_path,
+                "paragraph_index": idx,
+                "paragraphs_in_file": len(paragraphs),
+                "content": para,
+                "char_count": len(para),
+                "created_at": file_mtime_iso,
+            },
+        })
+    return out
+
+
+def _split_paragraphs(text: str) -> list[str]:
+    """Split text into paragraphs.
+
+    Splits on blank lines (one or more empty lines). Filters out paragraphs
+    below _MIN_PARAGRAPH_CHARS to drop noise (single-word labels, ruler lines
+    of dashes, etc.). Strips surrounding whitespace from each.
+    """
+    raw = re.split(r"\n\s*\n+", text)
+    out = []
+    for chunk in raw:
+        s = chunk.strip()
+        if not s:
+            continue
+        # Skip if it's mostly punctuation/whitespace (ruler lines, dividers)
+        alnum = sum(1 for c in s if c.isalnum())
+        if alnum < _MIN_PARAGRAPH_CHARS:
+            continue
+        out.append(s)
+    return out
+
+
+def _shorten(text: str, n: int) -> str:
+    one_line = " ".join(text.split())
+    if len(one_line) <= n:
+        return one_line
+    return one_line[: n - 1].rstrip() + "…"
+
+
 def _file_node(f: Path, folder_rel: str, cluster_id: str) -> dict[str, Any]:
     rel_path = f"{folder_rel}/{f.name}" if folder_rel else f.name
     size = f.stat().st_size
@@ -307,6 +391,15 @@ def main(argv: list[str] | None = None) -> int:
         "--description", type=str, default=None,
         help="Override meta.description in the output.",
     )
+    parser.add_argument(
+        "--no-explode", dest="explode_text", action="store_false",
+        help="Disable paragraph-explosion of text files (default: ON for .txt/.md/.markdown/.rst/.org).",
+    )
+    parser.set_defaults(explode_text=True)
+    parser.add_argument(
+        "--explode-size", type=int, default=_DEFAULT_EXPLODE_SIZE,
+        help=f"Max file size (bytes) eligible for paragraph-explosion (default {_DEFAULT_EXPLODE_SIZE}).",
+    )
     args = parser.parse_args(argv)
 
     excludes = tuple(args.exclude) if args.exclude else _DEFAULT_EXCLUDES
@@ -320,6 +413,8 @@ def main(argv: list[str] | None = None) -> int:
             excludes=excludes,
             title=args.title,
             description=args.description,
+            explode_text=args.explode_text,
+            explode_size=args.explode_size,
         )
     except FileNotFoundError as e:
         print(f"error: {e}", file=sys.stderr)
@@ -329,10 +424,11 @@ def main(argv: list[str] | None = None) -> int:
     args.output.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    composites = sum(1 for n in payload["nodes"] if n.get("meta", {}).get("kind") == "composite")
+    from collections import Counter as _Counter
+    kinds = _Counter(n.get("meta", {}).get("kind", "file") for n in payload["nodes"])
+    breakdown = ", ".join(f"{kind}: {n}" for kind, n in sorted(kinds.items()))
     print(
-        f"wrote {args.output}: {len(payload['nodes'])} nodes "
-        f"({composites} composite, {len(payload['nodes']) - composites} individual), "
+        f"wrote {args.output}: {len(payload['nodes'])} nodes ({breakdown}), "
         f"{len(payload['clusters'])} clusters",
         file=sys.stderr,
     )
