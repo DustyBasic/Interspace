@@ -37,6 +37,9 @@ doesn't query it, it **renders** it as something a human can navigate.
   edges) with `archived_at` + `archived_from_cluster` metadata. The archive
   file auto-maintains itself for next run, so the HTML becomes the
   persistent catalog of every node ever observed
+- **Local server + auto-open** via `python -m interspace serve <dir>` —
+  stdlib-only HTTP server with optional browser launch, for quick previews
+  without spinning up a separate `http.server` invocation
 - **Auto-validation** of input JSON against the schema; all errors collected
   and reported together
 - **Pluggable input adapters** — write `to_interspace_json(source) -> dict`,
@@ -100,10 +103,16 @@ One reference render ships with the repo:
   controls). Use this to learn the schema or as a regression-check that the
   renderer still produces clean output.
 
+Open it locally:
+
 ```bash
-python -m http.server 8765 -d samples/rendered_example/
-# then http://localhost:8765/
+python -m interspace serve samples/rendered_example/
+# starts a local HTTP server and opens the default browser
 ```
+
+Pass `--port <N>` to override the default 8000, or `--no-open` to skip the
+auto-browser launch. The `serve` subcommand works on any rendered directory
+(including your own renders under `local/rendered/`).
 
 ## Operator-private data
 

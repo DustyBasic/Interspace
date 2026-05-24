@@ -2,6 +2,7 @@
 
 Usage:
     python -m interspace render <input.json> --output <dir>
+    python -m interspace serve <rendered_dir> [--port N] [--no-open]
     python -m interspace --version
 """
 
@@ -35,6 +36,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the title used on the index page (default: derived from input filename).",
     )
 
+    serve = sub.add_parser(
+        "serve",
+        help="Start a local HTTP server for a rendered Interspace directory.",
+    )
+    serve.add_argument(
+        "directory", type=Path, help="Path to a rendered output directory."
+    )
+    serve.add_argument(
+        "--port", "-p", type=int, default=8000, help="Port to bind (default 8000)."
+    )
+    serve.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host to bind (default 127.0.0.1).",
+    )
+    serve.add_argument(
+        "--no-open",
+        dest="open_browser",
+        action="store_false",
+        help="Don't auto-launch the default browser.",
+    )
+    serve.set_defaults(open_browser=True)
+
     return p
 
 
@@ -50,6 +75,16 @@ def main(argv: list[str] | None = None) -> int:
             input_path=args.input,
             output_dir=args.output,
             title=args.title,
+        )
+
+    if args.command == "serve":
+        from .server import run_server
+
+        return run_server(
+            directory=args.directory,
+            port=args.port,
+            host=args.host,
+            open_browser=args.open_browser,
         )
 
     parser.print_help()
