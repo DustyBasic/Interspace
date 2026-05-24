@@ -40,6 +40,13 @@ doesn't query it, it **renders** it as something a human can navigate.
 - **Local server + auto-open** via `python -m interspace serve <dir>` —
   stdlib-only HTTP server with optional browser launch, for quick previews
   without spinning up a separate `http.server` invocation
+- **3D lattice view** — alongside the 2D `lattice.html`, every render also
+  emits `lattice_3d.html`: a force-directed 3D rendering via vendored
+  Three.js + 3d-force-graph (~1.8MB JS, SHA256-pinned). Drag to rotate,
+  scroll to zoom, click any sphere to open its detail page. Same data as
+  the 2D view, different rendering primitive. Useful when 2D cluster
+  density becomes illegible — connected components surface as
+  constellations in 3D space
 - **Auto-validation** of input JSON against the schema; all errors collected
   and reported together
 - **Pluggable input adapters** — write `to_interspace_json(source) -> dict`,
@@ -76,14 +83,20 @@ Interspace JSON  ({meta, nodes, edges, clusters} — see docs/INPUT_SCHEMA.md)
        ▼
 rendered HTML pages
    ├── index.html                  ← clusters + node list
-   ├── lattice.html                ← full network, filters
-   ├── clusters/<cluster_id>.html  ← per cluster
+   ├── lattice.html                ← 2D force-directed view, filters
+   ├── lattice_3d.html             ← 3D force-directed view (Three.js)
+   ├── clusters/<cluster_id>.html  ← per cluster (with 2D mini-lattice)
    ├── nodes/<node_id>.html        ← per node
    └── static/                     ← vendored JS, CSS
-       ├── js/cytoscape.min.js
+       ├── js/cytoscape.min.js     ← 2D renderer
        ├── js/cytoscape.version.txt
-       ├── js/lattice.js
+       ├── js/three.min.js         ← 3D renderer (peer dep)
+       ├── js/3d-force-graph.min.js
+       ├── js/3d-force-graph.version.txt
+       ├── js/lattice.js           ← 2D init + filters + zoom
+       ├── js/lattice_3d.js        ← 3D init + zoom controls
        ├── js/cluster_lattice.js
+       ├── js/theme.js             ← dark mode toggle
        └── css/style.css
 ```
 
@@ -194,6 +207,17 @@ on the slider (auto-adapt step to range); multi-tag composition toggle (AND
 vs OR); search highlighting on the canvas; node detail pages showing
 inbound/outbound *edge kinds* grouped semantically; per-dataset archive view
 (dedicated filtered page).
+
+**v0.4 — 3D prototype shipped.** `lattice_3d.html` companion to the 2D
+view, vendored Three.js + 3d-force-graph. Force-directed 3D with rotate /
+zoom / pan / click-to-navigate. Same data feeds both views.
+
+**v0.5 — spatial-hierarchy navigation (planned).** Extend the 3D view so
+camera zoom level traverses container hierarchy: zooming into a cluster's
+volume expands it into its own local force-directed sub-graph; zooming
+further expands a document anchor into its paragraphs; zooming out
+restores parent context. Each zoom level a fresh force solve over a
+filtered slice of the data.
 
 ## License
 
