@@ -84,11 +84,12 @@
         return Math.max(1, n.weight * n.weight * 4);
       })
       .nodeOpacity(0.9)
-      .linkColor(function () { return "rgba(180, 180, 180, 0.35)"; })
-      .linkWidth(0.5)
-      .linkDirectionalArrowLength(2.5)
-      .linkDirectionalArrowRelPos(0.85)
-      .linkDirectionalArrowColor(function () { return "rgba(140, 140, 140, 0.6)"; })
+      .linkColor(function () { return "rgba(200, 200, 200, 0.6)"; })
+      .linkWidth(1.5)
+      .linkOpacity(0.6)
+      .linkDirectionalArrowLength(3.5)
+      .linkDirectionalArrowRelPos(0.9)
+      .linkDirectionalArrowColor(function () { return "rgba(170, 170, 170, 0.85)"; })
       .onNodeClick(function (n) {
         if (!n || !n.id) return;
         window.location.href = "nodes/" + encodeURIComponent(n.id) + ".html";
@@ -101,6 +102,33 @@
     }
     window.addEventListener("resize", resize);
     setTimeout(resize, 0);
+
+    wireZoomControls(container, graph);
+  }
+
+  function wireZoomControls(container, graph) {
+    var wrap = container.parentElement;
+    if (!wrap) return;
+    var buttons = wrap.querySelectorAll(".lattice-zoom__btn");
+    if (!buttons.length) return;
+    var ZOOM_FACTOR = 0.7;  // multiply camera distance by this to zoom in
+    buttons.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var mode = btn.getAttribute("data-zoom");
+        if (mode === "fit") {
+          graph.zoomToFit(500, 40);
+          return;
+        }
+        var cam = graph.cameraPosition();
+        if (!cam) return;
+        var factor = mode === "in" ? ZOOM_FACTOR : 1 / ZOOM_FACTOR;
+        graph.cameraPosition(
+          { x: cam.x * factor, y: cam.y * factor, z: cam.z * factor },
+          null,
+          300
+        );
+      });
+    });
   }
 
   // Convert a hex color and an opacity-like factor (0-1) to an rgba() string

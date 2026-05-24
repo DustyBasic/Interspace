@@ -17,8 +17,15 @@
       </p>
     </header>
 
-    <div id="lattice-3d" class="lattice__canvas lattice__canvas--3d" role="img"
-         aria-label="Interactive 3D graph of {{ nodes | length }} nodes and {{ edges | length }} edges">
+    <div class="lattice-wrap">
+      <div id="lattice-3d" class="lattice__canvas lattice__canvas--3d" role="img"
+           aria-label="Interactive 3D graph of {{ nodes | length }} nodes and {{ edges | length }} edges">
+      </div>
+      <div class="lattice-zoom" role="group" aria-label="Zoom controls">
+        <button type="button" class="lattice-zoom__btn" data-zoom="in" aria-label="Zoom in" title="Zoom in">+</button>
+        <button type="button" class="lattice-zoom__btn" data-zoom="out" aria-label="Zoom out" title="Zoom out">&minus;</button>
+        <button type="button" class="lattice-zoom__btn" data-zoom="fit" aria-label="Fit to view" title="Fit to view">&#x2922;</button>
+      </div>
     </div>
 
     {% if clusters %}
