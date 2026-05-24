@@ -70,13 +70,54 @@
           label: c.label || c.id,
           cluster: c.id,
           color: clusterColors[c.id] || "#888",
-          isParent: true
+          isParent: true,
+          parentKind: "cluster"
         },
         classes: "cluster-parent"
       });
     });
+    // Second pass: discover document anchors (nodes with `document` field).
+    // Each unique document becomes a compound nested inside its cluster.
+    var documentParents = {};  // key: "<cluster>::<doc>" -> { id, label, color }
+    data.nodes.forEach(function (n) {
+      if (!n.document) return;
+      var cluster = n.cluster || "uncategorized";
+      var key = cluster + "::" + n.document;
+      if (documentParents[key]) return;
+      var docLabel = n.document.split("/").pop();
+      documentParents[key] = {
+        id: "doc:" + cluster + ":" + n.document,
+        label: docLabel,
+        cluster: cluster,
+        color: clusterColors[cluster] || "#888"
+      };
+    });
+    Object.keys(documentParents).forEach(function (k) {
+      var dp = documentParents[k];
+      els.push({
+        group: "nodes",
+        data: {
+          id: dp.id,
+          label: dp.label,
+          cluster: dp.cluster,
+          color: dp.color,
+          isParent: true,
+          parentKind: "document",
+          parent: "cluster:" + dp.cluster
+        },
+        classes: "document-parent"
+      });
+    });
+    // Third pass: emit data nodes, parenting paragraphs to their document anchor
+    // and everything else directly to its cluster.
     data.nodes.forEach(function (n) {
       var cluster = n.cluster || "uncategorized";
+      var parentId;
+      if (n.document) {
+        parentId = "doc:" + cluster + ":" + n.document;
+      } else {
+        parentId = "cluster:" + cluster;
+      }
       var nodeData = {
         id: n.id,
         label: n.label || n.id,
@@ -86,7 +127,7 @@
         color: colorForNode(n, colorBy, clusterColors, tagColors),
         archived: !!n.archived,
         phase: n.phase || (n.archived ? "archived" : "current"),
-        parent: "cluster:" + cluster
+        parent: parentId
       };
       if (typeof n.ts === "number") nodeData.ts = n.ts;
       var nodeClasses = "";
@@ -225,18 +266,40 @@
           style: {
             "shape": "round-rectangle",
             "background-color": "data(color)",
-            "background-opacity": 0.06,
+            "background-opacity": 0.12,
             "border-color": "data(color)",
-            "border-width": 1.5,
-            "border-opacity": 0.5,
+            "border-width": 2,
+            "border-opacity": 0.7,
             "label": "data(label)",
-            "font-size": "12px",
+            "font-size": "13px",
             "font-weight": "bold",
             "color": "data(color)",
             "text-valign": "top",
             "text-halign": "center",
-            "text-margin-y": -6,
-            "padding": "18px",
+            "text-margin-y": -8,
+            "padding": "22px",
+            "compound-sizing-wrt-labels": "include",
+            "events": "no"
+          }
+        },
+        {
+          selector: "node.document-parent",
+          style: {
+            "shape": "round-rectangle",
+            "background-color": "data(color)",
+            "background-opacity": 0.18,
+            "border-color": "data(color)",
+            "border-width": 1,
+            "border-opacity": 0.6,
+            "border-style": "dashed",
+            "label": "data(label)",
+            "font-size": "10px",
+            "font-weight": "normal",
+            "color": "data(color)",
+            "text-valign": "top",
+            "text-halign": "center",
+            "text-margin-y": -4,
+            "padding": "10px",
             "compound-sizing-wrt-labels": "include",
             "events": "no"
           }

@@ -245,6 +245,12 @@ def _lattice_node(n: dict[str, Any]) -> dict[str, Any]:
     phase = n.get("phase")
     if phase and phase != "current":
         out["phase"] = phase
+    # Document anchor (Pi-style middle layer between cluster and atom).
+    # For filesystem_tree paragraph nodes, group by source_file so cose can
+    # apply nested compound containment.
+    meta = n.get("meta") or {}
+    if meta.get("kind") == "paragraph" and meta.get("source_file"):
+        out["document"] = meta["source_file"]
     return out
 
 
