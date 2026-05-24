@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lattice &mdash; Interspace v0.1 sample — framework concept fragment</title>
   <link rel="stylesheet" href="static/css/style.css">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("interspace.theme");
+        if (!t) t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
+      } catch (e) {}
+    })();
+  </script>
   <script src="static/js/cytoscape.min.js"></script>
 </head>
 <body>
@@ -23,6 +32,12 @@
                 <li><a href="clusters/meta.html">Meta — cross-scale pattern</a></li>
             </ul>
           </li>
+        <li>
+          <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+            <span class="theme-toggle__sun">&#9728;</span>
+            <span class="theme-toggle__moon">&#9789;</span>
+          </button>
+        </li>
       </ul>
     </nav>
   </header>
@@ -111,6 +126,7 @@
 from <code>hand-authored@0.1</code>&middot; <time datetime="2026-05-23">2026-05-23</time>    </p>
   </footer>
 
+  <script src="static/js/theme.js"></script>
   <script id="lattice-data" type="application/json">{"nodes":[{"id":"pentagon","label":"Pentagon","cluster":"geometric","weight":1.5,"tags":["shape","5-fold"],"ts":1768435200000},{"id":"phi","label":"Phi (\u03c6)","cluster":"geometric","weight":1.0,"tags":["ratio"],"ts":1769904000000},{"id":"triad","label":"Triad","cluster":"geometric","weight":1.0,"tags":["3-fold"],"ts":1771545600000},{"id":"phosphorus","label":"Phosphorus 5-valence","cluster":"atomic","weight":1.0,"tags":["5-fold"],"ts":1773100800000},{"id":"panchakoshas","label":"Panchakoshas (5 sheaths)","cluster":"cognitive","weight":1.0,"tags":["5-fold"],"ts":1775347200000},{"id":"five_fold","label":"5-fold structure","cluster":"meta","weight":2.0,"tags":["pattern"],"ts":1777593600000}],"edges":[{"source":"pentagon","target":"phi","kind":"derives","weight":1.0},{"source":"pentagon","target":"five_fold","kind":"instantiates","weight":1.0},{"source":"phosphorus","target":"five_fold","kind":"instantiates","weight":1.0},{"source":"panchakoshas","target":"five_fold","kind":"instantiates","weight":1.0},{"source":"phi","target":"pentagon","kind":"embedded_in","weight":0.5},{"source":"triad","target":"pentagon","kind":"extends_to","weight":1.0}],"clusters":[{"id":"geometric","label":"Geometric scale","color":"#4f7cac"},{"id":"atomic","label":"Atomic scale","color":"#c97b63"},{"id":"cognitive","label":"Cognitive scale","color":"#7aa974"},{"id":"meta","label":"Meta \u2014 cross-scale pattern","color":"#9b7aa9"}]}</script>
   <script src="static/js/lattice.js"></script>
 </body>

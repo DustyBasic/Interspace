@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Pentagon &mdash; Interspace v0.1 sample — framework concept fragment</title>
   <link rel="stylesheet" href="../static/css/style.css">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("interspace.theme");
+        if (!t) t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
   <header class="site-header">
@@ -22,6 +31,12 @@
                 <li><a href="../clusters/meta.html">Meta — cross-scale pattern</a></li>
             </ul>
           </li>
+        <li>
+          <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+            <span class="theme-toggle__sun">&#9728;</span>
+            <span class="theme-toggle__moon">&#9789;</span>
+          </button>
+        </li>
       </ul>
     </nav>
   </header>
@@ -95,5 +110,6 @@
 from <code>hand-authored@0.1</code>&middot; <time datetime="2026-05-23">2026-05-23</time>    </p>
   </footer>
 
+  <script src="../static/js/theme.js"></script>
 </body>
 </html>

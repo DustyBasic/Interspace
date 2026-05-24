@@ -112,6 +112,8 @@ def render_pages(
 
     _copy_static_assets(output_dir / "static")
 
+    _write_render_meta(output_dir, normalized, counts)
+
     print(
         f"rendered: {counts['pages']} pages "
         f"({counts['nodes']} nodes, {counts['edges']} edges, "
@@ -119,6 +121,31 @@ def render_pages(
         file=sys.stderr,
     )
     return 0
+
+
+def _write_render_meta(
+    output_dir: Path,
+    normalized: dict[str, Any],
+    counts: dict[str, int],
+) -> None:
+    """Write a _meta.json describing this render. Consumed by the hub generator."""
+    archived_count = sum(1 for n in normalized["nodes"] if n.get("archived"))
+    epoch_min_ms, epoch_max_ms = _node_epoch_range(normalized["nodes"])
+    meta = {
+        "title": normalized["meta"].get("title") or output_dir.name,
+        "description": normalized["meta"].get("description"),
+        "source": normalized["meta"].get("source"),
+        "nodes": counts["nodes"],
+        "edges": counts["edges"],
+        "clusters": counts["clusters"],
+        "archived": archived_count,
+        "epoch_min": _ms_to_date_str(epoch_min_ms),
+        "epoch_max": _ms_to_date_str(epoch_max_ms),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    (output_dir / "_meta.json").write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def _write_index(

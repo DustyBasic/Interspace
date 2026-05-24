@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ meta.title or "Interspace" }}{% endblock %}</title>
   <link rel="stylesheet" href="{{ asset_prefix }}static/css/style.css">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("interspace.theme");
+        if (!t) t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
+      } catch (e) {}
+    })();
+  </script>
   {% block head_extra %}{% endblock %}
 </head>
 <body>
@@ -24,6 +33,12 @@
             </ul>
           </li>
         {% endif %}
+        <li>
+          <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+            <span class="theme-toggle__sun">&#9728;</span>
+            <span class="theme-toggle__moon">&#9789;</span>
+          </button>
+        </li>
       </ul>
     </nav>
   </header>
@@ -40,6 +55,7 @@
     </p>
   </footer>
 
+  <script src="{{ asset_prefix }}static/js/theme.js"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

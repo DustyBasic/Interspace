@@ -36,6 +36,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the title used on the index page (default: derived from input filename).",
     )
 
+    hub = sub.add_parser(
+        "hub",
+        help="Generate an index.html linking multiple rendered Interspace outputs.",
+    )
+    hub.add_argument(
+        "base",
+        type=Path,
+        help="Base directory containing rendered subdirs (each with _meta.json).",
+    )
+
     serve = sub.add_parser(
         "serve",
         help="Start a local HTTP server for a rendered Interspace directory.",
@@ -76,6 +86,11 @@ def main(argv: list[str] | None = None) -> int:
             output_dir=args.output,
             title=args.title,
         )
+
+    if args.command == "hub":
+        from .hub import build_hub
+
+        return build_hub(args.base)
 
     if args.command == "serve":
         from .server import run_server

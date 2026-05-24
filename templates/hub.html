@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ hub_title }}</title>
+  <link rel="stylesheet" href="static/css/style.css">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("interspace.theme");
+        if (!t) t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body class="hub-body">
+  <header class="site-header">
+    <nav class="site-nav">
+      <span class="site-nav__brand">{{ hub_title }}</span>
+      <ul class="site-nav__links">
+        <li><span class="site-nav__count">{{ dataset_count }} dataset{{ "s" if dataset_count != 1 else "" }}</span></li>
+        <li>
+          <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+            <span class="theme-toggle__sun">&#9728;</span>
+            <span class="theme-toggle__moon">&#9789;</span>
+          </button>
+        </li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="site-main hub-main">
+    {% if hub_description %}
+      <p class="hub__description">{{ hub_description }}</p>
+    {% endif %}
+
+    {% for group in groups %}
+      <section class="hub-group">
+        {% if group.label %}
+          <h2 class="hub-group__label">{{ group.label }}</h2>
+        {% endif %}
+        {% if group.description %}
+          <p class="hub-group__description">{{ group.description }}</p>
+        {% endif %}
+        <ul class="hub-cards">
+          {% for d in group.datasets %}
+            <li class="hub-card">
+              <a class="hub-card__link" href="{{ d.slug }}/index.html">
+                <h3 class="hub-card__title">{{ d.title }}</h3>
+                {% if d.description %}
+                  <p class="hub-card__description">{{ d.description }}</p>
+                {% endif %}
+                <dl class="hub-card__stats">
+                  <div><dt>Nodes</dt><dd>{{ d.nodes }}</dd></div>
+                  <div><dt>Edges</dt><dd>{{ d.edges }}</dd></div>
+                  <div><dt>Clusters</dt><dd>{{ d.clusters }}</dd></div>
+                  {% if d.archived %}
+                    <div class="hub-card__archived"><dt>Archived</dt><dd>{{ d.archived }}</dd></div>
+                  {% endif %}
+                </dl>
+                {% if d.epoch_min and d.epoch_max %}
+                  <p class="hub-card__epoch">
+                    <time datetime="{{ d.epoch_min }}">{{ d.epoch_min }}</time>
+                    &nbsp;&mdash;&nbsp;
+                    <time datetime="{{ d.epoch_max }}">{{ d.epoch_max }}</time>
+                  </p>
+                {% endif %}
+                {% if d.source %}
+                  <p class="hub-card__source">{{ d.source }}</p>
+                {% endif %}
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endfor %}
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      Indexed by <a href="https://github.com/DustyBasic/Interspace" rel="noopener">Interspace</a>
+    </p>
+  </footer>
+
+  <script src="static/js/theme.js"></script>
+</body>
+</html>
