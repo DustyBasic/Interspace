@@ -322,12 +322,16 @@
 
     cy.on("tap", "node", function (evt) {
       var n = evt.target;
-      if (n.data("isParent")) return;
+      if (n.hasClass("cluster-parent") || n.hasClass("document-parent")) return;
       var id = n.data("id");
       if (id) {
         window.location.href = "nodes/" + encodeURIComponent(id) + ".html";
       }
     });
+
+    // Auto-fit the viewport to the laid-out graph (cose with compound nodes
+    // can position things outside the default viewport).
+    cy.fit(undefined, 30);
 
     wireZoomControls(container, cy);
 
@@ -354,12 +358,16 @@
       return true;
     }
 
+    function isParentNode(n) {
+      return n.hasClass("cluster-parent") || n.hasClass("document-parent");
+    }
+
     function applyFilters() {
       cy.batch(function () {
         var visible = 0;
         var total = 0;
         cy.nodes().forEach(function (n) {
-          if (n.data("isParent")) return;  // parents are synthetic containers
+          if (isParentNode(n)) return;  // synthetic containers, never counted
           total++;
           var ok = nodeMatches(n.data());
           n.toggleClass("filtered-out", !ok);
@@ -391,7 +399,7 @@
     function applyColoring() {
       cy.batch(function () {
         cy.nodes().forEach(function (n) {
-          if (n.data("isParent")) return;  // parents keep their cluster color
+          if (isParentNode(n)) return;  // parents keep their cluster color
           var d = n.data();
           var c = colorForNode(d, state.colorBy, clusterColors, tagColors);
           n.data("color", c);

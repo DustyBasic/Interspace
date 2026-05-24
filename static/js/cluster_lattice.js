@@ -190,12 +190,15 @@
 
     cy.on("tap", "node", function (evt) {
       var n = evt.target;
-      if (n.data("isParent")) return;  // synthetic containers
+      if (n.hasClass("document-parent")) return;  // synthetic containers
       var id = n.data("id");
       if (id) {
         window.location.href = "../nodes/" + encodeURIComponent(id) + ".html";
       }
     });
+
+    // Auto-fit the viewport (cose with compounds can position outside default view).
+    cy.fit(undefined, 25);
 
     wireZoomControls(container, cy);
     wireTimeSlider(cy);
