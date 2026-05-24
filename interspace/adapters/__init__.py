@@ -8,9 +8,17 @@ Each adapter is a Python module that exposes:
      --output <json>`, with an optional `--archive <prev.json>` for
      persistent-catalog mode.
 
-This package ships empty. Drop your own adapter modules here (or anywhere on
-the Python path); see `docs/ADAPTERS.md` for the contract and a generic
-skeleton. Adapters never mutate their source data; the pipeline is:
+The bundled set is intentionally small. One generic adapter ships:
+
+  - filesystem_tree -- walks any directory and emits density-aware nodes,
+    collapsing versioned/timestamped/numbered file families into composite
+    nodes while preserving unique standalone files individually.
+
+Adapters that read private or operator-specific schemas should live in your
+own repo or in `local/adapters/`, not in the framework. See
+`docs/ADAPTERS.md` for the contract and a generic skeleton.
+
+Pipeline:
 
     python -m interspace.adapters.<name> <source> -o input.json
     python -m interspace render input.json -o rendered/

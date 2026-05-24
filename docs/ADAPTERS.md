@@ -325,7 +325,38 @@ source survive the merge. Add edges between sources by hand-editing the
 combined JSON after running merge, or by writing them into one of the
 sources before merging.
 
-## Suggested adapter shapes
+## Bundled: `filesystem_tree`
+
+The one generic adapter that ships with the framework. Walks any directory
+tree and emits density-aware nodes — file families that match a naming
+pattern (timestamped series, versioned series, `CURRENT_*` snapshots,
+numbered series, checksum files) collapse into a single composite node
+when their group size meets the density threshold (default 3). Files that
+don't match a pattern, or whose group is below threshold, stay as
+individual nodes. Top-level subdirectories become clusters.
+
+```bash
+python -m interspace.adapters.filesystem_tree <root_dir> -o input.json \
+    [--density-threshold N]   # default 3
+    [--max-depth N]           # default unlimited
+    [--cluster-depth N]       # default 1 (top-level subdirs)
+    [--exclude <glob>] ...    # default: .*, *.pyc, __pycache__, node_modules
+    [--title "..."]
+    [--description "..."]
+```
+
+The density-aware aggregation keeps the lattice from drowning in serial
+files (logs, snapshots, ledger appends) while preserving every unique
+standalone artifact. Cluster names mirror the source folder structure.
+
+Composite nodes carry their `file_count`, `total_size_bytes`,
+`sample_files` (first 10), `extensions`, and `latest_mtime` in `meta` so
+the per-node detail page surfaces the underlying file list.
+
+Node ids are constrained to filesystem-safe characters (`[A-Za-z0-9._-]`)
+so they work as filenames on every OS.
+
+## Suggested additional adapter shapes
 
 The model fits best where there's **structure that's hard to see in a flat
 list** — clusters forming, unexpected bridges, isolated nodes, temporal
@@ -340,8 +371,6 @@ drift. Some shapes that work well:
   `created_at` for the time slider.
 - **bibliography** — nodes for papers; edges for citations; cluster by
   research area; weight by citation count.
-- **filesystem_tree** — one node per file under a root; edges from filename
-  references inside file contents; cluster by top-level folder.
 - **sqlite_schema** — for any DB with a relational structure: pick a table
   as the node-source, foreign-key columns as edges, derived attribute (or
   user-pinned column) as cluster.

@@ -176,9 +176,10 @@ contract that adapters must implement to support this mode.
   `static/js/cytoscape.version.txt`. Never re-fetched silently.
 - **Compose, don't own.** Interspace doesn't replace your storage, query
   layer, or note-taking. It adds the visualization leg.
-- **No bundled adapters.** The `interspace/adapters/` package ships empty.
-  Adapters are operator-specific by nature — they read your data, so they
-  belong in your repo (or `local/`), not in the framework.
+- **Minimal bundled adapters.** The `interspace/adapters/` package ships
+  one generic adapter (`filesystem_tree`) that works on any directory.
+  Adapters that read private or operator-specific schemas should live in
+  your own repo or in `local/adapters/`, not in the framework.
 
 ## Status
 
@@ -187,14 +188,12 @@ archive-aware mode, hand-curated input pattern, search / tag / time filters
 with shared cutoff across pages, zoom controls, mini-lattices. One synthetic
 reference sample (`example.json`) committed.
 
-**v0.2 — likely next:** generalized `filesystem_tree` adapter (auto-walks a
-directory tree, emits one node per file with folder-derived clusters and
-filename-reference edges); `markdown_corpus` adapter (one node per `.md`
-file, edges from link references, frontmatter → tags); dark-mode CSS; finer
-time bucketing on the slider (auto-adapt step to range); multi-tag
-composition toggle (AND vs OR); search highlighting on the canvas; node
-detail pages showing inbound/outbound *edge kinds* grouped semantically;
-local-side `hub.html` indexing across multiple datasets.
+**v0.2 — likely next:** `markdown_corpus` adapter (one node per `.md`
+file, edges from link references, frontmatter → tags); finer time bucketing
+on the slider (auto-adapt step to range); multi-tag composition toggle (AND
+vs OR); search highlighting on the canvas; node detail pages showing
+inbound/outbound *edge kinds* grouped semantically; per-dataset archive view
+(dedicated filtered page).
 
 ## License
 
