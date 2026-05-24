@@ -242,6 +242,9 @@ def _lattice_node(n: dict[str, Any]) -> dict[str, Any]:
         out["archived"] = True
         if n.get("archived_at"):
             out["archived_at"] = n["archived_at"]
+    phase = n.get("phase")
+    if phase and phase != "current":
+        out["phase"] = phase
     return out
 
 
@@ -258,6 +261,9 @@ def _cluster_lattice_node(n: dict[str, Any]) -> dict[str, Any]:
         out["archived"] = True
         if n.get("archived_at"):
             out["archived_at"] = n["archived_at"]
+    phase = n.get("phase")
+    if phase and phase != "current":
+        out["phase"] = phase
     return out
 
 

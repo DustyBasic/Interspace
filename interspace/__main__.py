@@ -46,6 +46,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Base directory containing rendered subdirs (each with _meta.json).",
     )
 
+    merge = sub.add_parser(
+        "merge",
+        help="Merge multiple Interspace JSON inputs into one combined payload.",
+    )
+    merge.add_argument(
+        "config",
+        type=Path,
+        help="Path to a merge config JSON file (see interspace.merger).",
+    )
+    merge.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        required=True,
+        help="Output path for the merged Interspace JSON.",
+    )
+
     serve = sub.add_parser(
         "serve",
         help="Start a local HTTP server for a rendered Interspace directory.",
@@ -91,6 +108,29 @@ def main(argv: list[str] | None = None) -> int:
         from .hub import build_hub
 
         return build_hub(args.base)
+
+    if args.command == "merge":
+        from .merger import merge_from_config
+
+        try:
+            payload = merge_from_config(args.config)
+        except (ValueError, FileNotFoundError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        args.output.write_text(
+            _json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        phases = {n.get("phase", "current") for n in payload["nodes"]}
+        print(
+            f"merged {len(payload['nodes'])} nodes, "
+            f"{len(payload['edges'])} edges, "
+            f"{len(payload['clusters'])} clusters "
+            f"(phases: {sorted(phases)}) -> {args.output}",
+            file=sys.stderr,
+        )
+        return 0
 
     if args.command == "serve":
         from .server import run_server

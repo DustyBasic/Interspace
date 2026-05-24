@@ -287,6 +287,44 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
+## Merging multiple sources into one lattice
+
+When several inputs should display in a single lattice — typically a live
+data source plus historical/foundational sources that pre-date it — the
+`interspace merge` subcommand combines them:
+
+```bash
+python -m interspace merge merge_config.json -o combined.json
+python -m interspace render combined.json -o rendered/
+```
+
+The merge config declares each source with a prefix (to namespace its ids
+and avoid collisions) and a phase (`current`, `foundation`, or `archived`):
+
+```json
+{
+  "meta": {
+    "title": "Combined view",
+    "description": "Live source + foundations"
+  },
+  "sources": [
+    {"path": "live.json",        "prefix": "lv", "phase": "current"},
+    {"path": "foundation_a.json","prefix": "fa", "phase": "foundation"},
+    {"path": "foundation_b.json","prefix": "fb", "phase": "foundation"}
+  ]
+}
+```
+
+Each node in the output is tagged with its source's phase. The renderer
+shades by phase: `current` nodes display normally, `foundation` nodes get
+dotted borders at 0.7 opacity, `archived` nodes get dashed borders at 0.4
+opacity. Edges between mixed-phase endpoints take the more-faded styling.
+
+Cross-source edges aren't currently supported — only edges within a single
+source survive the merge. Add edges between sources by hand-editing the
+combined JSON after running merge, or by writing them into one of the
+sources before merging.
+
 ## Suggested adapter shapes
 
 The model fits best where there's **structure that's hard to see in a flat

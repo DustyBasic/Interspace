@@ -49,6 +49,7 @@ Each entry is an object:
 | `archived`               | boolean | N   | `false`          | If true, node is rendered at lower opacity and tagged as archived. |
 | `archived_at`            | string  | N   | —                | ISO-8601 date the node was archived. Shown on the node detail page. |
 | `archived_from_cluster`  | string  | N   | —                | The cluster the node was last seen in before being archived. |
+| `phase`                  | string  | N   | derived          | Temporal phase: `"current"`, `"foundation"`, or `"archived"`. Drives visual shading on the lattice. Defaults to `"archived"` when `archived=true`, else `"current"`. Used by `interspace merge` to mark sources that pre-date the live store. |
 
 ## `edges` (required array; may be empty)
 

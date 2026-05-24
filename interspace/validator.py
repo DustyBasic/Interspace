@@ -63,6 +63,10 @@ def validate_input(data: Any) -> tuple[list[str], dict[str, Any] | None]:
             errors.append(f"nodes[{i}].archived_at must be a string")
         if "archived_from_cluster" in node and not isinstance(node["archived_from_cluster"], str):
             errors.append(f"nodes[{i}].archived_from_cluster must be a string")
+        if "phase" in node and node["phase"] not in ("current", "foundation", "archived"):
+            errors.append(
+                f"nodes[{i}].phase must be one of 'current', 'foundation', 'archived'"
+            )
 
     cluster_ids: set[str] = set()
     raw_clusters = data.get("clusters")
@@ -146,6 +150,9 @@ def _apply_defaults(data: dict[str, Any]) -> dict[str, Any]:
         n.setdefault("weight", 1.0)
         n.setdefault("meta", {})
         n.setdefault("archived", False)
+        # phase defaults to "archived" if archived=True, else "current"
+        if "phase" not in n:
+            n["phase"] = "archived" if n.get("archived") else "current"
         normalized_nodes.append(n)
     out["nodes"] = normalized_nodes
 

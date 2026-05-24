@@ -60,7 +60,7 @@
 
   function toElements(data, clusterColors, tagColors, colorBy) {
     var els = [];
-    var archivedIds = {};
+    var nodePhase = {};
     data.nodes.forEach(function (n) {
       var nodeData = {
         id: n.id,
@@ -69,18 +69,23 @@
         tags: n.tags || [],
         weight: typeof n.weight === "number" ? n.weight : 1.0,
         color: colorForNode(n, colorBy, clusterColors, tagColors),
-        archived: !!n.archived
+        archived: !!n.archived,
+        phase: n.phase || (n.archived ? "archived" : "current")
       };
       if (typeof n.ts === "number") nodeData.ts = n.ts;
-      if (n.archived) archivedIds[n.id] = true;
-      els.push({
-        group: "nodes",
-        data: nodeData,
-        classes: n.archived ? "archived" : ""
-      });
+      var nodeClasses = "";
+      if (nodeData.archived) nodeClasses = "archived";
+      else if (nodeData.phase === "foundation") nodeClasses = "foundation";
+      nodePhase[n.id] = nodeData.phase;
+      els.push({ group: "nodes", data: nodeData, classes: nodeClasses });
     });
     (data.edges || []).forEach(function (e, i) {
-      var edgeArchived = !!(archivedIds[e.source] || archivedIds[e.target]);
+      var srcPhase = nodePhase[e.source] || "current";
+      var tgtPhase = nodePhase[e.target] || "current";
+      var edgeClass = "";
+      // Archived dominates; foundation second; current is plain.
+      if (srcPhase === "archived" || tgtPhase === "archived") edgeClass = "archived";
+      else if (srcPhase === "foundation" || tgtPhase === "foundation") edgeClass = "foundation";
       els.push({
         group: "edges",
         data: {
@@ -90,7 +95,7 @@
           kind: e.kind || "related",
           weight: typeof e.weight === "number" ? e.weight : 1.0
         },
-        classes: edgeArchived ? "archived" : ""
+        classes: edgeClass
       });
     });
     return els;
@@ -177,6 +182,22 @@
           style: {
             "opacity": 0.4,
             "line-style": "dashed"
+          }
+        },
+        {
+          selector: "node.foundation",
+          style: {
+            "opacity": 0.7,
+            "border-style": "dotted",
+            "border-width": 2,
+            "border-color": "#555"
+          }
+        },
+        {
+          selector: "edge.foundation",
+          style: {
+            "opacity": 0.55,
+            "line-style": "dotted"
           }
         },
         {

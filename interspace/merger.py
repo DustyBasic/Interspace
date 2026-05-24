@@ -1,0 +1,185 @@
+"""Merge multiple Interspace JSON inputs into one combined payload.
+
+Used to integrate datasets that should display in a single lattice but
+have different temporal phases — e.g., a live data source plus several
+historical/foundational sources that pre-date it.
+
+Each source contributes prefixed ids (to avoid collisions) and tags every
+node it emits with a `phase` string (`current`, `archived`, or `foundation`).
+The renderer styles nodes differently per phase.
+
+Configuration file format (JSON):
+
+    {
+        "meta": {
+            "title": "...",
+            "description": "..."
+        },
+        "sources": [
+            {
+                "path": "path/to/input.json",
+                "prefix": "abc",            // prepended to ids
+                "phase": "current"          // current | foundation | archived
+            },
+            ...
+        ]
+    }
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+
+VALID_PHASES = {"current", "foundation", "archived"}
+
+
+def merge_inputs(config: dict[str, Any], base_dir: Path | None = None) -> dict[str, Any]:
+    """Merge inputs declared in `config` into a single Interspace payload.
+
+    `base_dir` is the directory the config was loaded from, used to resolve
+    relative source paths. Pass `None` to treat paths as cwd-relative.
+    """
+    sources = config.get("sources") or []
+    if not sources:
+        raise ValueError("merge config has no 'sources'")
+
+    out: dict[str, Any] = {
+        "meta": dict(config.get("meta") or {}),
+        "nodes": [],
+        "edges": [],
+        "clusters": [],
+    }
+
+    seen_cluster_ids: set[str] = set()
+
+    for src in sources:
+        path_raw = src.get("path")
+        prefix = src.get("prefix", "")
+        phase = src.get("phase", "current")
+        if phase not in VALID_PHASES:
+            raise ValueError(
+                f"source phase {phase!r} not in {sorted(VALID_PHASES)}"
+            )
+        if not path_raw:
+            raise ValueError("source missing 'path'")
+
+        src_path = Path(path_raw)
+        if base_dir is not None and not src_path.is_absolute():
+            src_path = (base_dir / src_path).resolve()
+
+        data = json.loads(src_path.read_text(encoding="utf-8"))
+
+        prefixed_node_ids: set[str] = set()
+        for node in data.get("nodes", []):
+            if not isinstance(node, dict) or "id" not in node:
+                continue
+            n = dict(node)
+            n["id"] = _prefix(prefix, node["id"])
+            prefixed_node_ids.add(n["id"])
+            if "cluster" in n:
+                n["cluster"] = _prefix(prefix, n["cluster"])
+            # phase is set unless the node already declared one
+            n.setdefault("phase", phase)
+            out["nodes"].append(n)
+
+        for edge in data.get("edges", []):
+            if not isinstance(edge, dict):
+                continue
+            src_id = edge.get("source")
+            tgt_id = edge.get("target")
+            if not src_id or not tgt_id:
+                continue
+            new_src = _prefix(prefix, src_id)
+            new_tgt = _prefix(prefix, tgt_id)
+            if new_src not in prefixed_node_ids or new_tgt not in prefixed_node_ids:
+                # Skip edges that reference nodes from other sources we haven't
+                # processed yet or that don't exist; cross-source edges aren't
+                # supported in this simple merge.
+                continue
+            e = dict(edge)
+            e["source"] = new_src
+            e["target"] = new_tgt
+            out["edges"].append(e)
+
+        for cluster in data.get("clusters", []):
+            if not isinstance(cluster, dict) or "id" not in cluster:
+                continue
+            c = dict(cluster)
+            new_id = _prefix(prefix, cluster["id"])
+            if new_id in seen_cluster_ids:
+                continue
+            c["id"] = new_id
+            # Tag the cluster with phase too so the renderer can group visually
+            c.setdefault("phase", phase)
+            seen_cluster_ids.add(new_id)
+            out["clusters"].append(c)
+
+    return out
+
+
+def _prefix(prefix: str, value: str) -> str:
+    if not prefix:
+        return value
+    return f"{prefix}:{value}"
+
+
+def merge_from_config(config_path: Path) -> dict[str, Any]:
+    """Load a merge config from disk and run the merge."""
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    return merge_inputs(config, base_dir=config_path.parent)
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="interspace merge",
+        description=(
+            "Merge multiple Interspace JSON inputs into one combined payload, "
+            "tagging each node with a 'phase' (current / foundation / archived)."
+        ),
+    )
+    parser.add_argument(
+        "config",
+        type=Path,
+        help="Path to a merge config JSON file.",
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        required=True,
+        help="Output path for the merged Interspace JSON.",
+    )
+    args = parser.parse_args(argv)
+
+    if not args.config.exists():
+        print(f"error: config not found: {args.config}", file=sys.stderr)
+        return 2
+
+    try:
+        payload = merge_from_config(args.config)
+    except (ValueError, FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    phases = {n.get("phase", "current") for n in payload["nodes"]}
+    print(
+        f"merged {len(payload['nodes'])} nodes, {len(payload['edges'])} edges, "
+        f"{len(payload['clusters'])} clusters (phases: {sorted(phases)}) "
+        f"-> {args.output}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
