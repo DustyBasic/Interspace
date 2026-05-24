@@ -60,6 +60,35 @@
       </section>
     {% endif %}
 
+    {% if prev_node or next_node %}
+      <nav class="node__sibling-nav" aria-label="Adjacent in source">
+        <div class="node__sibling node__sibling--prev">
+          {% if prev_node %}
+            <a href="{{ asset_prefix }}nodes/{{ prev_node.id }}.html">
+              <span class="node__sibling-arrow">&laquo;</span>
+              <span class="node__sibling-label">Previous</span>
+              <span class="node__sibling-title">{{ prev_node.label }}</span>
+              {% if prev_node.meta and prev_node.meta.content %}
+                <span class="node__sibling-preview">{{ prev_node.meta.content | truncate(160) }}</span>
+              {% endif %}
+            </a>
+          {% endif %}
+        </div>
+        <div class="node__sibling node__sibling--next">
+          {% if next_node %}
+            <a href="{{ asset_prefix }}nodes/{{ next_node.id }}.html">
+              <span class="node__sibling-arrow">&raquo;</span>
+              <span class="node__sibling-label">Next</span>
+              <span class="node__sibling-title">{{ next_node.label }}</span>
+              {% if next_node.meta and next_node.meta.content %}
+                <span class="node__sibling-preview">{{ next_node.meta.content | truncate(160) }}</span>
+              {% endif %}
+            </a>
+          {% endif %}
+        </div>
+      </nav>
+    {% endif %}
+
     {% if node.meta %}
       <section class="node__adapter-meta">
         <h2>Adapter metadata</h2>

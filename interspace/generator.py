@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import shutil
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -441,6 +441,50 @@ def _write_cluster_pages(
     return written
 
 
+def _compute_siblings(
+    nodes: list[dict[str, Any]],
+) -> dict[str, tuple[str | None, str | None]]:
+    """For each node id, return (prev_id, next_id) within its natural sibling group.
+
+    Grouping: same `meta.source_file` if present (paragraph nodes from the same
+    document), otherwise same cluster. Within each group, sort by
+    `paragraph_index` (sequential text), else `created_at` (chronological
+    findings), else id (stable fallback).
+    """
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for n in nodes:
+        meta_n = n.get("meta") or {}
+        if meta_n.get("source_file"):
+            key = ("file", str(meta_n["source_file"]))
+        else:
+            key = ("cluster", str(n.get("cluster", "uncategorized")))
+        groups[key].append(n)
+
+    def sort_key(n: dict[str, Any]) -> tuple[int, Any]:
+        meta_n = n.get("meta") or {}
+        if "paragraph_index" in meta_n:
+            try:
+                return (0, int(meta_n["paragraph_index"]))
+            except (TypeError, ValueError):
+                pass
+        if meta_n.get("created_at"):
+            return (1, str(meta_n["created_at"]))
+        return (2, str(n.get("id", "")))
+
+    result: dict[str, tuple[str | None, str | None]] = {}
+    for group_nodes in groups.values():
+        group_nodes_sorted = sorted(group_nodes, key=sort_key)
+        for i, n in enumerate(group_nodes_sorted):
+            prev_id = group_nodes_sorted[i - 1]["id"] if i > 0 else None
+            next_id = (
+                group_nodes_sorted[i + 1]["id"]
+                if i < len(group_nodes_sorted) - 1
+                else None
+            )
+            result[n["id"]] = (prev_id, next_id)
+    return result
+
+
 def _write_node_pages(
     env: Environment,
     output_dir: Path,
@@ -455,6 +499,7 @@ def _write_node_pages(
     node_dir.mkdir(parents=True, exist_ok=True)
     template = env.get_template("node.html")
     written = 0
+    siblings = _compute_siblings(nodes)
 
     for node in nodes:
         nid = node["id"]
@@ -481,6 +526,10 @@ def _write_node_pages(
         cluster_obj = cluster_by_id.get(node["cluster"])
         node_cluster_label = cluster_obj["label"] if cluster_obj else node["cluster"]
 
+        prev_id, next_id = siblings.get(node["id"], (None, None))
+        prev_node = node_by_id.get(prev_id) if prev_id else None
+        next_node = node_by_id.get(next_id) if next_id else None
+
         html = template.render(
             asset_prefix="../",
             meta=meta,
@@ -491,6 +540,8 @@ def _write_node_pages(
             node_cluster_label=node_cluster_label,
             outgoing=outgoing,
             incoming=incoming,
+            prev_node=prev_node,
+            next_node=next_node,
         )
         (node_dir / f"{nid}.html").write_text(html, encoding="utf-8")
         written += 1
