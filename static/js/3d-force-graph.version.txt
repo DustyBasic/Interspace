@@ -1,0 +1,31 @@
+packages:
+  - three@0.160.1
+  - 3d-force-graph@1.74.4
+
+files:
+  - three.min.js          (669884 bytes)
+  - 3d-force-graph.min.js (1121196 bytes)
+
+sha256:
+  three.min.js          170c6789f43217c96b3170f4b42fafe135de7f7cd48497a4218f9757ee1d49fa
+  3d-force-graph.min.js 99af526335cadb455e2025a4582043562bfd83e1043dd11db5e8cb3f445b2010
+
+sources:
+  - https://unpkg.com/three@0.160.1/build/three.min.js
+  - https://unpkg.com/3d-force-graph@1.74.4/dist/3d-force-graph.min.js
+  - https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.min.js
+  - https://cdn.jsdelivr.net/npm/3d-force-graph@1.74.4/dist/3d-force-graph.min.js
+
+fetched:  2026-05-24
+licenses:
+  three           MIT (https://github.com/mrdoob/three.js/blob/master/LICENSE)
+  3d-force-graph  MIT (https://github.com/vasturiano/3d-force-graph/blob/master/LICENSE)
+
+# Supply-chain note
+# Both unpkg and jsdelivr returned identical bytes for both files
+# (verified 2026-05-24). Do NOT re-fetch silently. If upgrading either
+# package, bump the version explicitly, re-verify against two mirrors,
+# and update this file.
+#
+# Load order MUST be: three.min.js first, then 3d-force-graph.min.js
+# (3d-force-graph's IIFE bundle expects THREE to exist as a global).

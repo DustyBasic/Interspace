@@ -498,6 +498,22 @@ code, pre { font-family: var(--font-mono); font-size: 0.9em; }
   border-radius: var(--radius);
 }
 
+.lattice__canvas--3d {
+  /* 3d-force-graph manages its own canvas inside this container */
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+}
+
+.lattice__view-switch {
+  margin-left: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--color-link);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+.lattice__view-switch:hover { border-bottom-color: currentColor; }
+
 .lattice__legend {
   margin-top: 1rem;
   padding: 0.75rem 1rem;

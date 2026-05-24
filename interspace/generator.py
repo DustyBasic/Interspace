@@ -103,6 +103,9 @@ def render_pages(
     counts["pages"] += _write_lattice(
         env, output_dir, meta, nodes, edges, clusters
     )
+    counts["pages"] += _write_lattice_3d(
+        env, output_dir, meta, nodes, edges, clusters
+    )
     counts["pages"] += _write_cluster_pages(
         env, output_dir, meta, nodes, edges, clusters, node_by_id
     )
@@ -315,6 +318,47 @@ def _ms_to_date_str(ms: int | None) -> str | None:
     if ms is None:
         return None
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+
+
+def _write_lattice_3d(
+    env: Environment,
+    output_dir: Path,
+    meta: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    clusters: list[dict[str, Any]],
+) -> int:
+    """Render the 3D-view companion to lattice.html (3d-force-graph prototype)."""
+    lattice_payload = {
+        "nodes": [_lattice_node(n) for n in nodes],
+        "edges": [
+            {
+                "source": e["source"],
+                "target": e["target"],
+                "kind": e["kind"],
+                "weight": e["weight"],
+            }
+            for e in edges
+        ],
+        "clusters": [
+            {"id": c["id"], "label": c["label"], "color": c.get("color")}
+            for c in clusters
+        ],
+    }
+    lattice_json = (
+        json.dumps(lattice_payload, separators=(",", ":"))
+        .replace("</", "<\\/")
+    )
+    html = env.get_template("lattice_3d.html").render(
+        asset_prefix="",
+        meta=meta,
+        nodes=nodes,
+        edges=edges,
+        clusters=clusters,
+        lattice_data_json=lattice_json,
+    )
+    (output_dir / "lattice_3d.html").write_text(html, encoding="utf-8")
+    return 1
 
 
 def _write_cluster_pages(
