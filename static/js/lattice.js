@@ -76,48 +76,14 @@
         classes: "cluster-parent"
       });
     });
-    // Second pass: discover document anchors (nodes with `document` field).
-    // Each unique document becomes a compound nested inside its cluster.
-    var documentParents = {};  // key: "<cluster>::<doc>" -> { id, label, color }
-    data.nodes.forEach(function (n) {
-      if (!n.document) return;
-      var cluster = n.cluster || "uncategorized";
-      var key = cluster + "::" + n.document;
-      if (documentParents[key]) return;
-      var docLabel = n.document.split("/").pop();
-      documentParents[key] = {
-        id: "doc:" + cluster + ":" + n.document,
-        label: docLabel,
-        cluster: cluster,
-        color: clusterColors[cluster] || "#888"
-      };
-    });
-    Object.keys(documentParents).forEach(function (k) {
-      var dp = documentParents[k];
-      els.push({
-        group: "nodes",
-        data: {
-          id: dp.id,
-          label: dp.label,
-          cluster: dp.cluster,
-          color: dp.color,
-          isParent: true,
-          parentKind: "document",
-          parent: "cluster:" + dp.cluster
-        },
-        classes: "document-parent"
-      });
-    });
-    // Third pass: emit data nodes, parenting paragraphs to their document anchor
-    // and everything else directly to its cluster.
+    // (Second pass: document-parent compounds removed for now — vanilla cose
+    //  can't reliably handle two layers of nested compounds at this scale.
+    //  Build-on-cose follow-on will add them back via post-layout grid
+    //  constraint on ballooned parents.)
+    // Emit data nodes parented directly to their cluster.
     data.nodes.forEach(function (n) {
       var cluster = n.cluster || "uncategorized";
-      var parentId;
-      if (n.document) {
-        parentId = "doc:" + cluster + ":" + n.document;
-      } else {
-        parentId = "cluster:" + cluster;
-      }
+      var parentId = "cluster:" + cluster;
       var nodeData = {
         id: n.id,
         label: n.label || n.id,
