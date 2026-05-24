@@ -620,6 +620,68 @@ code, pre { font-family: var(--font-mono); font-size: 0.9em; }
 .node__meta dt { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-muted); margin: 0; }
 .node__meta dd { margin: 0.25rem 0 0; }
 
+.node__document-context {
+  margin-top: var(--gap-lg);
+}
+.node__document-context h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.75rem;
+}
+.node__document-paragraphs {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.5rem;
+}
+.node__doc-para {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--color-text);
+  border-bottom: 1px solid transparent;
+  margin-bottom: 0.15rem;
+  align-items: start;
+}
+.node__doc-para--sibling:hover {
+  background: var(--color-tag-bg);
+  border-bottom-color: transparent;
+}
+.node__doc-para--current {
+  background: var(--color-tag-bg);
+  border-left: 3px solid var(--color-accent);
+  padding-left: calc(0.75rem - 3px);
+}
+.node__doc-para-index {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-muted);
+  padding-top: 0.15rem;
+  text-align: right;
+}
+.node__doc-para--current .node__doc-para-index {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.node__doc-para-content {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--color-text);
+}
+.node__doc-para--current .node__doc-para-content {
+  color: var(--color-text);
+  font-weight: 500;
+}
+.node__doc-para--sibling .node__doc-para-content {
+  color: var(--color-muted);
+}
+
 .node__sibling-nav {
   display: grid;
   grid-template-columns: 1fr 1fr;

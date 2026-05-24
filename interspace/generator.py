@@ -441,6 +441,31 @@ def _write_cluster_pages(
     return written
 
 
+def _compute_document_paragraphs(
+    nodes: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """For each paragraph node, return the ordered list of all paragraph
+    siblings from the same `meta.source_file`. Empty for non-paragraph nodes
+    or nodes without a source_file.
+    """
+    by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for n in nodes:
+        m = n.get("meta") or {}
+        if m.get("kind") == "paragraph" and m.get("source_file"):
+            by_source[str(m["source_file"])].append(n)
+
+    for paras in by_source.values():
+        paras.sort(
+            key=lambda n: (n.get("meta") or {}).get("paragraph_index", 0)
+        )
+
+    result: dict[str, list[dict[str, Any]]] = {}
+    for paras in by_source.values():
+        for n in paras:
+            result[n["id"]] = paras
+    return result
+
+
 def _compute_siblings(
     nodes: list[dict[str, Any]],
 ) -> dict[str, tuple[str | None, str | None]]:
@@ -500,6 +525,7 @@ def _write_node_pages(
     template = env.get_template("node.html")
     written = 0
     siblings = _compute_siblings(nodes)
+    document_paragraphs_lookup = _compute_document_paragraphs(nodes)
 
     for node in nodes:
         nid = node["id"]
@@ -529,6 +555,7 @@ def _write_node_pages(
         prev_id, next_id = siblings.get(node["id"], (None, None))
         prev_node = node_by_id.get(prev_id) if prev_id else None
         next_node = node_by_id.get(next_id) if next_id else None
+        document_paragraphs = document_paragraphs_lookup.get(node["id"], [])
 
         html = template.render(
             asset_prefix="../",
@@ -542,6 +569,7 @@ def _write_node_pages(
             incoming=incoming,
             prev_node=prev_node,
             next_node=next_node,
+            document_paragraphs=document_paragraphs,
         )
         (node_dir / f"{nid}.html").write_text(html, encoding="utf-8")
         written += 1

@@ -60,6 +60,27 @@
       </section>
     {% endif %}
 
+    {% if document_paragraphs and document_paragraphs | length > 1 %}
+      <section class="node__document-context">
+        <h2>Source document <span class="count">({{ document_paragraphs | length }} paragraphs in {{ node.meta.source_file }})</span></h2>
+        <div class="node__document-paragraphs">
+          {% for para in document_paragraphs %}
+            {% if para.id == node.id %}
+              <div class="node__doc-para node__doc-para--current" id="current-para">
+                <span class="node__doc-para-index">{{ para.meta.paragraph_index + 1 }}</span>
+                <pre class="node__doc-para-content">{{ para.meta.content }}</pre>
+              </div>
+            {% else %}
+              <a href="{{ asset_prefix }}nodes/{{ para.id }}.html" class="node__doc-para node__doc-para--sibling">
+                <span class="node__doc-para-index">{{ para.meta.paragraph_index + 1 }}</span>
+                <pre class="node__doc-para-content">{{ para.meta.content }}</pre>
+              </a>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
     {% if prev_node or next_node %}
       <nav class="node__sibling-nav" aria-label="Adjacent in source">
         <div class="node__sibling node__sibling--prev">
