@@ -160,15 +160,38 @@
             "opacity": 0.55,
             "line-style": "dotted"
           }
+        },
+        {
+          selector: "node.document-parent",
+          style: {
+            "shape": "round-rectangle",
+            "background-color": "data(color)",
+            "background-opacity": 0.18,
+            "border-color": "data(color)",
+            "border-width": 1,
+            "border-opacity": 0.7,
+            "border-style": "dashed",
+            "label": "data(label)",
+            "font-size": "10px",
+            "color": "data(color)",
+            "text-valign": "top",
+            "text-halign": "center",
+            "text-margin-y": -4,
+            "padding": "12px",
+            "compound-sizing-wrt-labels": "include",
+            "events": "no"
+          }
         }
       ],
       layout: layout,
-      minZoom: 0.3,
+      minZoom: 0.05,
       maxZoom: 3
     });
 
     cy.on("tap", "node", function (evt) {
-      var id = evt.target.data("id");
+      var n = evt.target;
+      if (n.data("isParent")) return;  // synthetic containers
+      var id = n.data("id");
       if (id) {
         window.location.href = "../nodes/" + encodeURIComponent(id) + ".html";
       }

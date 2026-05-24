@@ -270,6 +270,9 @@ def _cluster_lattice_node(n: dict[str, Any]) -> dict[str, Any]:
     phase = n.get("phase")
     if phase and phase != "current":
         out["phase"] = phase
+    meta = n.get("meta") or {}
+    if meta.get("kind") == "paragraph" and meta.get("source_file"):
+        out["document"] = meta["source_file"]
     return out
 
 
