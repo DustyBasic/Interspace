@@ -42,6 +42,24 @@
       {% endif %}
     </dl>
 
+    {% if node.meta and node.meta.content %}
+      <section class="node__content">
+        <h2>Content</h2>
+        <pre class="node__content-block">{{ node.meta.content }}</pre>
+        {% if node.meta.source_file or node.meta.paragraph_index is defined %}
+          <p class="node__content-source">
+            {% if node.meta.source_file %}from <code>{{ node.meta.source_file }}</code>{% endif %}
+            {% if node.meta.paragraph_index is defined and node.meta.paragraphs_in_file is defined %}
+              &middot; paragraph {{ node.meta.paragraph_index + 1 }} of {{ node.meta.paragraphs_in_file }}
+            {% elif node.meta.paragraph_index is defined %}
+              &middot; paragraph index {{ node.meta.paragraph_index }}
+            {% endif %}
+            {% if node.meta.char_count is defined %}&middot; {{ node.meta.char_count }} chars{% endif %}
+          </p>
+        {% endif %}
+      </section>
+    {% endif %}
+
     {% if node.meta %}
       <section class="node__adapter-meta">
         <h2>Adapter metadata</h2>
