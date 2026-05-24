@@ -62,6 +62,15 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Output path for the merged Interspace JSON.",
     )
+    merge.add_argument(
+        "--patches",
+        type=Path,
+        default=None,
+        help=(
+            "Optional cross-source edge patch file (JSON list of edges with "
+            "already-prefixed ids; endpoints validated against merged node set)."
+        ),
+    )
 
     serve = sub.add_parser(
         "serve",
@@ -110,13 +119,22 @@ def main(argv: list[str] | None = None) -> int:
         return build_hub(args.base)
 
     if args.command == "merge":
-        from .merger import merge_from_config
+        from .merger import merge_from_config, apply_patches
 
         try:
             payload = merge_from_config(args.config)
         except (ValueError, FileNotFoundError) as e:
             print(f"error: {e}", file=sys.stderr)
             return 2
+        patches_msg = ""
+        if args.patches is not None:
+            try:
+                payload, applied, dropped = apply_patches(payload, args.patches)
+            except (ValueError, FileNotFoundError) as e:
+                print(f"error applying patches: {e}", file=sys.stderr)
+                return 2
+            patches_msg = f" + {applied} patch edges applied ({dropped} dropped)"
+
         args.output.parent.mkdir(parents=True, exist_ok=True)
         import json as _json
         args.output.write_text(
@@ -127,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
             f"merged {len(payload['nodes'])} nodes, "
             f"{len(payload['edges'])} edges, "
             f"{len(payload['clusters'])} clusters "
-            f"(phases: {sorted(phases)}) -> {args.output}",
+            f"(phases: {sorted(phases)}){patches_msg} -> {args.output}",
             file=sys.stderr,
         )
         return 0

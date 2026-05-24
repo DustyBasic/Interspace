@@ -320,10 +320,35 @@ shades by phase: `current` nodes display normally, `foundation` nodes get
 dotted borders at 0.7 opacity, `archived` nodes get dashed borders at 0.4
 opacity. Edges between mixed-phase endpoints take the more-faded styling.
 
-Cross-source edges aren't currently supported — only edges within a single
-source survive the merge. Add edges between sources by hand-editing the
-combined JSON after running merge, or by writing them into one of the
-sources before merging.
+Cross-source edges (e.g., from a `current`-phase node to a `foundation`-phase
+node in a different source) aren't created by merge itself — only intra-source
+edges survive the prefix step. They get added via the `--patches` flag,
+which reads a separate patch file containing edges with already-prefixed ids:
+
+```bash
+python -m interspace merge config.json --patches cross_edges.json -o combined.json
+```
+
+The patch file is either a JSON array of edges or `{"version": "1", "edges": [...]}`.
+Each edge's `source` and `target` are validated against the merged node set;
+edges with missing endpoints are dropped silently (count is reported).
+
+```json
+[
+  {
+    "source": "live:42",
+    "target": "foundation_a:principle_03",
+    "kind": "cites",
+    "weight": 0.8,
+    "meta": {"note": "live finding references this foundation principle"}
+  }
+]
+```
+
+The intended producer is an external scanner — typically a re-walk routine that
+already detects shared folds inside one source can be extended to also detect
+folds across sources and emit them to the patch file. The merger doesn't care
+how the patches were produced; it just validates and applies them.
 
 ## Bundled: `filesystem_tree`
 

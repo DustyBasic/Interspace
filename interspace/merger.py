@@ -37,6 +37,58 @@ from typing import Any
 VALID_PHASES = {"current", "foundation", "archived"}
 
 
+def apply_patches(
+    payload: dict[str, Any], patches_path: Path
+) -> tuple[dict[str, Any], int, int]:
+    """Apply a cross-source edge patch file to a merged payload.
+
+    The patch file is either a JSON array of edge objects with already-prefixed
+    ids, or an object with `{"version": "1", "edges": [...]}` shape. Each edge
+    is validated against the merged node set; edges whose endpoints don't exist
+    in the payload are skipped (and counted as `dropped`).
+
+    Returns (payload, applied_count, dropped_count).
+    """
+    if not patches_path.exists():
+        raise FileNotFoundError(f"patches file not found: {patches_path}")
+
+    raw = json.loads(patches_path.read_text(encoding="utf-8"))
+    if isinstance(raw, dict):
+        edges = raw.get("edges") or []
+    elif isinstance(raw, list):
+        edges = raw
+    else:
+        raise ValueError(
+            f"patches file must be a list of edges or {{edges: [...]}}, got {type(raw).__name__}"
+        )
+
+    node_ids = {n["id"] for n in payload["nodes"] if "id" in n}
+    existing_edge_keys = {
+        (e.get("source"), e.get("target"), e.get("kind")) for e in payload["edges"]
+    }
+
+    applied = 0
+    dropped = 0
+    for e in edges:
+        if not isinstance(e, dict):
+            dropped += 1
+            continue
+        src = e.get("source")
+        tgt = e.get("target")
+        if not src or not tgt or src not in node_ids or tgt not in node_ids:
+            dropped += 1
+            continue
+        key = (src, tgt, e.get("kind"))
+        if key in existing_edge_keys:
+            dropped += 1
+            continue
+        payload["edges"].append(dict(e))
+        existing_edge_keys.add(key)
+        applied += 1
+
+    return payload, applied, dropped
+
+
 def merge_inputs(config: dict[str, Any], base_dir: Path | None = None) -> dict[str, Any]:
     """Merge inputs declared in `config` into a single Interspace payload.
 
@@ -155,6 +207,15 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="Output path for the merged Interspace JSON.",
     )
+    parser.add_argument(
+        "--patches",
+        type=Path,
+        default=None,
+        help=(
+            "Optional cross-source edge patch file (JSON list of edges with "
+            "already-prefixed ids; endpoints validated against merged node set)."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if not args.config.exists():
@@ -167,6 +228,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 2
 
+    patches_msg = ""
+    if args.patches is not None:
+        try:
+            payload, applied, dropped = apply_patches(payload, args.patches)
+        except (ValueError, FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"error applying patches: {e}", file=sys.stderr)
+            return 2
+        patches_msg = f" + {applied} patch edges applied ({dropped} dropped)"
+
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -174,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     phases = {n.get("phase", "current") for n in payload["nodes"]}
     print(
         f"merged {len(payload['nodes'])} nodes, {len(payload['edges'])} edges, "
-        f"{len(payload['clusters'])} clusters (phases: {sorted(phases)}) "
+        f"{len(payload['clusters'])} clusters (phases: {sorted(phases)}){patches_msg} "
         f"-> {args.output}",
         file=sys.stderr,
     )
