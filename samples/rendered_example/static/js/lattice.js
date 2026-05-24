@@ -61,16 +61,32 @@
   function toElements(data, clusterColors, tagColors, colorBy) {
     var els = [];
     var nodePhase = {};
+    // First pass: emit cluster-parent compound nodes so children can reference them.
+    (data.clusters || []).forEach(function (c) {
+      els.push({
+        group: "nodes",
+        data: {
+          id: "cluster:" + c.id,
+          label: c.label || c.id,
+          cluster: c.id,
+          color: clusterColors[c.id] || "#888",
+          isParent: true
+        },
+        classes: "cluster-parent"
+      });
+    });
     data.nodes.forEach(function (n) {
+      var cluster = n.cluster || "uncategorized";
       var nodeData = {
         id: n.id,
         label: n.label || n.id,
-        cluster: n.cluster || "uncategorized",
+        cluster: cluster,
         tags: n.tags || [],
         weight: typeof n.weight === "number" ? n.weight : 1.0,
         color: colorForNode(n, colorBy, clusterColors, tagColors),
         archived: !!n.archived,
-        phase: n.phase || (n.archived ? "archived" : "current")
+        phase: n.phase || (n.archived ? "archived" : "current"),
+        parent: "cluster:" + cluster
       };
       if (typeof n.ts === "number") nodeData.ts = n.ts;
       var nodeClasses = "";
@@ -203,6 +219,27 @@
         {
           selector: "node:selected",
           style: { "border-width": 3, "border-color": "#222" }
+        },
+        {
+          selector: "node.cluster-parent",
+          style: {
+            "shape": "round-rectangle",
+            "background-color": "data(color)",
+            "background-opacity": 0.06,
+            "border-color": "data(color)",
+            "border-width": 1.5,
+            "border-opacity": 0.5,
+            "label": "data(label)",
+            "font-size": "12px",
+            "font-weight": "bold",
+            "color": "data(color)",
+            "text-valign": "top",
+            "text-halign": "center",
+            "text-margin-y": -6,
+            "padding": "18px",
+            "compound-sizing-wrt-labels": "include",
+            "events": "no"
+          }
         }
       ],
       layout: {
@@ -213,14 +250,17 @@
         edgeElasticity: 100,
         gravity: 0.25,
         numIter: 1500,
-        padding: 30
+        padding: 30,
+        nestingFactor: 1.2
       },
-      minZoom: 0.2,
+      minZoom: 0.05,
       maxZoom: 3
     });
 
     cy.on("tap", "node", function (evt) {
-      var id = evt.target.data("id");
+      var n = evt.target;
+      if (n.data("isParent")) return;
+      var id = n.data("id");
       if (id) {
         window.location.href = "nodes/" + encodeURIComponent(id) + ".html";
       }
@@ -254,7 +294,10 @@
     function applyFilters() {
       cy.batch(function () {
         var visible = 0;
+        var total = 0;
         cy.nodes().forEach(function (n) {
+          if (n.data("isParent")) return;  // parents are synthetic containers
+          total++;
           var ok = nodeMatches(n.data());
           n.toggleClass("filtered-out", !ok);
           if (ok) visible++;
@@ -264,7 +307,7 @@
           var tgtOk = !e.target().hasClass("filtered-out");
           e.toggleClass("filtered-out", !(srcOk && tgtOk));
         });
-        renderStatus(visible);
+        renderStatus(visible, total);
       });
       var timeSlider = document.getElementById("lattice-time");
       var atMaxTime = !timeSlider || state.timeCutoffMs === null ||
@@ -285,6 +328,7 @@
     function applyColoring() {
       cy.batch(function () {
         cy.nodes().forEach(function (n) {
+          if (n.data("isParent")) return;  // parents keep their cluster color
           var d = n.data();
           var c = colorForNode(d, state.colorBy, clusterColors, tagColors);
           n.data("color", c);
@@ -292,10 +336,9 @@
       });
     }
 
-    function renderStatus(visible) {
+    function renderStatus(visible, total) {
       var el = document.getElementById("lattice-status");
       if (!el) return;
-      var total = cy.nodes().length;
       if (visible === total) {
         el.textContent = "";
       } else {
