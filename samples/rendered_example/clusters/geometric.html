@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Geometric scale &mdash; Interspace v0.1 sample — framework concept fragment</title>
+  <link rel="stylesheet" href="../static/css/style.css">
+    <script src="../static/js/cytoscape.min.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <nav class="site-nav">
+      <a class="site-nav__brand" href="../index.html">Interspace v0.1 sample — framework concept fragment</a>
+      <ul class="site-nav__links">
+        <li><a href="../index.html">Overview</a></li>
+        <li><a href="../lattice.html">Lattice</a></li>
+          <li class="site-nav__dropdown">
+            <span>Clusters</span>
+            <ul>
+                <li><a href="../clusters/geometric.html">Geometric scale</a></li>
+                <li><a href="../clusters/atomic.html">Atomic scale</a></li>
+                <li><a href="../clusters/cognitive.html">Cognitive scale</a></li>
+                <li><a href="../clusters/meta.html">Meta — cross-scale pattern</a></li>
+            </ul>
+          </li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="site-main">
+  <article class="cluster">
+    <header class="cluster__header">
+        <span class="cluster__swatch" style="background:#4f7cac"></span>
+      <h1>Geometric scale</h1>
+      <p class="breadcrumb">
+        <a href="../index.html">Overview</a> &rsaquo; Clusters &rsaquo; <strong>Geometric scale</strong>
+      </p>
+    </header>
+
+      <section class="cluster__mini-lattice">
+        <h2>Mini-lattice <span class="count">(3 nodes, 3 edges)</span></h2>
+          <div class="lattice__controls cluster__mini-controls">
+            <label class="lattice__control lattice__control--time">
+              <span class="lattice__control-label">
+                Show up to <span id="cluster-time-label">2026-02-20</span>
+              </span>
+              <input id="cluster-time" type="range"
+                     min="1768435200000" max="1771545600000" step="86400000"
+                     value="1771545600000">
+              <span class="lattice__time-range">2026-01-15 &mdash; 2026-02-20</span>
+            </label>
+            <p id="cluster-time-status" class="lattice__status" aria-live="polite"></p>
+          </div>
+        <div class="lattice-wrap">
+          <div id="cluster-lattice" class="cluster__lattice-canvas" role="img"
+               aria-label="Intra-cluster lattice of 3 nodes"></div>
+          <div class="lattice-zoom" role="group" aria-label="Zoom controls">
+            <button type="button" class="lattice-zoom__btn" data-zoom="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
+            <button type="button" class="lattice-zoom__btn" data-zoom="out" aria-label="Zoom out" title="Zoom out (-)">&minus;</button>
+            <button type="button" class="lattice-zoom__btn" data-zoom="fit" aria-label="Fit to view" title="Fit to view">&#x2922;</button>
+          </div>
+        </div>
+      </section>
+
+    <section class="cluster__nodes">
+      <h2>Nodes <span class="count">(3)</span></h2>
+        <ul class="node-list__items">
+            <li class="node-list__item">
+              <a href="../nodes/pentagon.html">Pentagon</a>
+                <span class="node-list__tags">
+                    <span class="tag">shape</span>
+                    <span class="tag">5-fold</span>
+                </span>
+            </li>
+            <li class="node-list__item">
+              <a href="../nodes/phi.html">Phi (φ)</a>
+                <span class="node-list__tags">
+                    <span class="tag">ratio</span>
+                </span>
+            </li>
+            <li class="node-list__item">
+              <a href="../nodes/triad.html">Triad</a>
+                <span class="node-list__tags">
+                    <span class="tag">3-fold</span>
+                </span>
+            </li>
+        </ul>
+    </section>
+
+    <section class="cluster__edges">
+      <h2>Intra-cluster edges <span class="count">(3)</span></h2>
+        <ul class="edge-list">
+            <li>
+              <a href="../nodes/pentagon.html">Pentagon</a>
+              <span class="edge-kind">&mdash; derives &rarr;</span>
+              <a href="../nodes/phi.html">Phi (φ)</a>
+            </li>
+            <li>
+              <a href="../nodes/phi.html">Phi (φ)</a>
+              <span class="edge-kind">&mdash; embedded_in &rarr;</span>
+              <a href="../nodes/pentagon.html">Pentagon</a>
+            </li>
+            <li>
+              <a href="../nodes/triad.html">Triad</a>
+              <span class="edge-kind">&mdash; extends_to &rarr;</span>
+              <a href="../nodes/pentagon.html">Pentagon</a>
+            </li>
+        </ul>
+    </section>
+
+    <section class="cluster__edges">
+      <h2>Cross-cluster edges <span class="count">(1)</span></h2>
+        <ul class="edge-list">
+            <li>
+              <a href="../nodes/pentagon.html">Pentagon</a>
+              <span class="edge-kind">&mdash; instantiates &rarr;</span>
+              <a href="../nodes/five_fold.html">5-fold structure</a>
+                <span class="cluster-tag">[meta]</span>
+            </li>
+        </ul>
+    </section>
+  </article>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      Rendered by <a href="https://github.com/DustyBasic" rel="noopener">Interspace</a>
+from <code>hand-authored@0.1</code>&middot; <time datetime="2026-05-23">2026-05-23</time>    </p>
+  </footer>
+
+    <script id="cluster-data" type="application/json">{"cluster_id":"geometric","cluster_color":"#4f7cac","nodes":[{"id":"pentagon","label":"Pentagon","weight":1.5,"ts":1768435200000},{"id":"phi","label":"Phi (\u03c6)","weight":1.0,"ts":1769904000000},{"id":"triad","label":"Triad","weight":1.0,"ts":1771545600000}],"edges":[{"source":"pentagon","target":"phi","kind":"derives","weight":1.0},{"source":"phi","target":"pentagon","kind":"embedded_in","weight":0.5},{"source":"triad","target":"pentagon","kind":"extends_to","weight":1.0}]}</script>
+    <script src="../static/js/cluster_lattice.js"></script>
+</body>
+</html>

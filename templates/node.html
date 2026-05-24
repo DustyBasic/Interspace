@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}{{ node.label }} &mdash; {{ meta.title or "Interspace" }}{% endblock %}
+
+{% block content %}
+  <article class="node">
+    <header class="node__header">
+      <p class="breadcrumb">
+        <a href="{{ asset_prefix }}index.html">Overview</a> &rsaquo;
+        <a href="{{ asset_prefix }}clusters/{{ node.cluster }}.html">{{ node_cluster_label }}</a> &rsaquo;
+        <strong>{{ node.label }}</strong>
+      </p>
+      <h1>{{ node.label }}</h1>
+      <p class="node__id"><code>{{ node.id }}</code></p>
+    </header>
+
+    {% if node.archived %}
+      <p class="node__archived-banner">
+        Archived{% if node.archived_at %} on <time datetime="{{ node.archived_at }}">{{ node.archived_at }}</time>{% endif %}{% if node.archived_from_cluster %}; last active in <code>{{ node.archived_from_cluster }}</code>{% endif %}.
+      </p>
+    {% endif %}
+
+    <dl class="node__meta">
+      <div><dt>Cluster</dt><dd>
+        <a href="{{ asset_prefix }}clusters/{{ node.cluster }}.html">{{ node_cluster_label }}</a>
+      </dd></div>
+      {% if node.archived %}
+        <div><dt>Status</dt><dd>Archived</dd></div>
+        {% if node.archived_at %}
+          <div><dt>Archived at</dt><dd><time datetime="{{ node.archived_at }}">{{ node.archived_at }}</time></dd></div>
+        {% endif %}
+      {% endif %}
+      {% if node.weight is defined and node.weight != 1.0 %}
+        <div><dt>Weight</dt><dd>{{ node.weight }}</dd></div>
+      {% endif %}
+      {% if node.tags %}
+        <div><dt>Tags</dt><dd>
+          {% for tag in node.tags %}
+            <span class="tag">{{ tag }}</span>
+          {% endfor %}
+        </dd></div>
+      {% endif %}
+    </dl>
+
+    {% if node.meta %}
+      <section class="node__adapter-meta">
+        <h2>Adapter metadata</h2>
+        <pre class="adapter-meta">{{ node.meta | tojson(indent=2) }}</pre>
+      </section>
+    {% endif %}
+
+    <section class="node__edges">
+      <h2>Outgoing <span class="count">({{ outgoing | length }})</span></h2>
+      {% if outgoing %}
+        <ul class="edge-list">
+          {% for edge in outgoing %}
+            <li>
+              <span class="edge-kind">{{ edge.kind }} &rarr;</span>
+              <a href="{{ asset_prefix }}nodes/{{ edge.target }}.html">{{ edge.target_label }}</a>
+              <span class="cluster-tag">[{{ edge.target_cluster }}]</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty">No outgoing edges.</p>
+      {% endif %}
+
+      <h2>Incoming <span class="count">({{ incoming | length }})</span></h2>
+      {% if incoming %}
+        <ul class="edge-list">
+          {% for edge in incoming %}
+            <li>
+              <a href="{{ asset_prefix }}nodes/{{ edge.source }}.html">{{ edge.source_label }}</a>
+              <span class="cluster-tag">[{{ edge.source_cluster }}]</span>
+              <span class="edge-kind">&mdash; {{ edge.kind }} &rarr;</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty">No incoming edges.</p>
+      {% endif %}
+    </section>
+  </article>
+{% endblock %}

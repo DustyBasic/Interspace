@@ -1,0 +1,15 @@
+package:   cytoscape
+version:   3.30.2
+file:      cytoscape.min.js
+size:      373304 bytes
+sha256:    83e8c54a6bec655bfd81df07df605649c268af69aeca67a5ea2da54ea42dac81
+sources:
+  - https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js
+  - https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js
+fetched:   2026-05-23
+license:   MIT (https://github.com/cytoscape/cytoscape.js/blob/master/LICENSE)
+
+# Supply-chain note
+# Both unpkg and jsdelivr returned identical bytes (verified 2026-05-23).
+# Do NOT re-fetch silently. If upgrading, bump the version explicitly,
+# re-verify against two mirrors, and update this file.

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lattice &mdash; Interspace v0.1 sample — framework concept fragment</title>
+  <link rel="stylesheet" href="static/css/style.css">
+  <script src="static/js/cytoscape.min.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <nav class="site-nav">
+      <a class="site-nav__brand" href="index.html">Interspace v0.1 sample — framework concept fragment</a>
+      <ul class="site-nav__links">
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="lattice.html">Lattice</a></li>
+          <li class="site-nav__dropdown">
+            <span>Clusters</span>
+            <ul>
+                <li><a href="clusters/geometric.html">Geometric scale</a></li>
+                <li><a href="clusters/atomic.html">Atomic scale</a></li>
+                <li><a href="clusters/cognitive.html">Cognitive scale</a></li>
+                <li><a href="clusters/meta.html">Meta — cross-scale pattern</a></li>
+            </ul>
+          </li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="site-main">
+  <section class="lattice">
+    <header class="lattice__header">
+      <h1>Lattice</h1>
+      <p class="lattice__hint">Click a node to open its page. Drag to pan, scroll to zoom.</p>
+    </header>
+
+    <div class="lattice__controls" role="group" aria-label="Lattice filters">
+      <label class="lattice__control">
+        <span class="lattice__control-label">Search</span>
+        <input id="lattice-search" type="search" placeholder="label, id, or tag…" autocomplete="off">
+      </label>
+      <label class="lattice__control">
+        <span class="lattice__control-label">Color by</span>
+        <select id="lattice-color-by">
+          <option value="cluster" selected>Cluster</option>
+          <option value="tag">Tag</option>
+        </select>
+      </label>
+        <div class="lattice__control lattice__control--tags">
+          <span class="lattice__control-label">Tags</span>
+          <div class="lattice__tag-chips" id="lattice-tag-chips">
+              <button type="button" class="tag-chip" data-tag="5-fold" aria-pressed="false">5-fold</button>
+              <button type="button" class="tag-chip" data-tag="3-fold" aria-pressed="false">3-fold</button>
+              <button type="button" class="tag-chip" data-tag="pattern" aria-pressed="false">pattern</button>
+              <button type="button" class="tag-chip" data-tag="ratio" aria-pressed="false">ratio</button>
+              <button type="button" class="tag-chip" data-tag="shape" aria-pressed="false">shape</button>
+          </div>
+        </div>
+        <div class="lattice__control lattice__control--time">
+          <span class="lattice__control-label">
+            Show up to <span id="lattice-time-label">2026-05-01</span>
+          </span>
+          <input id="lattice-time" type="range"
+                 min="1768435200000" max="1777593600000" step="86400000"
+                 value="1777593600000">
+          <span class="lattice__time-range">2026-01-15 &mdash; 2026-05-01</span>
+        </div>
+      <button type="button" id="lattice-clear" class="lattice__clear" hidden>Clear filters</button>
+    </div>
+
+    <div class="lattice-wrap">
+      <div id="lattice" class="lattice__canvas" role="img"
+           aria-label="Interactive graph of 6 nodes and 6 edges">
+      </div>
+      <div class="lattice-zoom" role="group" aria-label="Zoom controls">
+        <button type="button" class="lattice-zoom__btn" data-zoom="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
+        <button type="button" class="lattice-zoom__btn" data-zoom="out" aria-label="Zoom out" title="Zoom out (-)">&minus;</button>
+        <button type="button" class="lattice-zoom__btn" data-zoom="fit" aria-label="Fit to view" title="Fit to view">&#x2922;</button>
+      </div>
+    </div>
+
+    <p id="lattice-status" class="lattice__status" aria-live="polite"></p>
+
+      <aside class="lattice__legend" aria-label="Cluster legend">
+        <h2>Clusters</h2>
+        <ul>
+            <li>
+                <span class="lattice__legend-swatch" style="background:#4f7cac"></span>
+              <a href="clusters/geometric.html">Geometric scale</a>
+            </li>
+            <li>
+                <span class="lattice__legend-swatch" style="background:#c97b63"></span>
+              <a href="clusters/atomic.html">Atomic scale</a>
+            </li>
+            <li>
+                <span class="lattice__legend-swatch" style="background:#7aa974"></span>
+              <a href="clusters/cognitive.html">Cognitive scale</a>
+            </li>
+            <li>
+                <span class="lattice__legend-swatch" style="background:#9b7aa9"></span>
+              <a href="clusters/meta.html">Meta — cross-scale pattern</a>
+            </li>
+        </ul>
+      </aside>
+  </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      Rendered by <a href="https://github.com/DustyBasic" rel="noopener">Interspace</a>
+from <code>hand-authored@0.1</code>&middot; <time datetime="2026-05-23">2026-05-23</time>    </p>
+  </footer>
+
+  <script id="lattice-data" type="application/json">{"nodes":[{"id":"pentagon","label":"Pentagon","cluster":"geometric","weight":1.5,"tags":["shape","5-fold"],"ts":1768435200000},{"id":"phi","label":"Phi (\u03c6)","cluster":"geometric","weight":1.0,"tags":["ratio"],"ts":1769904000000},{"id":"triad","label":"Triad","cluster":"geometric","weight":1.0,"tags":["3-fold"],"ts":1771545600000},{"id":"phosphorus","label":"Phosphorus 5-valence","cluster":"atomic","weight":1.0,"tags":["5-fold"],"ts":1773100800000},{"id":"panchakoshas","label":"Panchakoshas (5 sheaths)","cluster":"cognitive","weight":1.0,"tags":["5-fold"],"ts":1775347200000},{"id":"five_fold","label":"5-fold structure","cluster":"meta","weight":2.0,"tags":["pattern"],"ts":1777593600000}],"edges":[{"source":"pentagon","target":"phi","kind":"derives","weight":1.0},{"source":"pentagon","target":"five_fold","kind":"instantiates","weight":1.0},{"source":"phosphorus","target":"five_fold","kind":"instantiates","weight":1.0},{"source":"panchakoshas","target":"five_fold","kind":"instantiates","weight":1.0},{"source":"phi","target":"pentagon","kind":"embedded_in","weight":0.5},{"source":"triad","target":"pentagon","kind":"extends_to","weight":1.0}],"clusters":[{"id":"geometric","label":"Geometric scale","color":"#4f7cac"},{"id":"atomic","label":"Atomic scale","color":"#c97b63"},{"id":"cognitive","label":"Cognitive scale","color":"#7aa974"},{"id":"meta","label":"Meta \u2014 cross-scale pattern","color":"#9b7aa9"}]}</script>
+  <script src="static/js/lattice.js"></script>
+</body>
+</html>

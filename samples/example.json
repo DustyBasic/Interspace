@@ -1,0 +1,31 @@
+{
+  "_comment": "Reference Interspace v0.1 input. Exercises every field group in docs/INPUT_SCHEMA.md.",
+  "meta": {
+    "title": "Interspace v0.1 sample — framework concept fragment",
+    "description": "Cross-scale 5-fold pattern: geometric, atomic, cognitive, meta.",
+    "source": "hand-authored@0.1",
+    "epoch": "2026-05-23"
+  },
+  "nodes": [
+    {"id": "pentagon",     "label": "Pentagon",                 "cluster": "geometric", "tags": ["shape", "5-fold"], "weight": 1.5, "meta": {"created_at": "2026-01-15T00:00:00Z"}},
+    {"id": "phi",          "label": "Phi (φ)",                  "cluster": "geometric", "tags": ["ratio"],            "meta": {"created_at": "2026-02-01T00:00:00Z"}},
+    {"id": "triad",        "label": "Triad",                    "cluster": "geometric", "tags": ["3-fold"],           "meta": {"created_at": "2026-02-20T00:00:00Z"}},
+    {"id": "phosphorus",   "label": "Phosphorus 5-valence",     "cluster": "atomic",    "tags": ["5-fold"],           "meta": {"created_at": "2026-03-10T00:00:00Z"}},
+    {"id": "panchakoshas", "label": "Panchakoshas (5 sheaths)", "cluster": "cognitive", "tags": ["5-fold"],           "meta": {"created_at": "2026-04-05T00:00:00Z"}},
+    {"id": "five_fold",    "label": "5-fold structure",         "cluster": "meta",      "tags": ["pattern"], "weight": 2.0, "meta": {"created_at": "2026-05-01T00:00:00Z"}}
+  ],
+  "edges": [
+    {"source": "pentagon",     "target": "phi",       "kind": "derives"},
+    {"source": "pentagon",     "target": "five_fold", "kind": "instantiates"},
+    {"source": "phosphorus",   "target": "five_fold", "kind": "instantiates"},
+    {"source": "panchakoshas", "target": "five_fold", "kind": "instantiates"},
+    {"source": "phi",          "target": "pentagon",  "kind": "embedded_in", "weight": 0.5},
+    {"source": "triad",        "target": "pentagon",  "kind": "extends_to"}
+  ],
+  "clusters": [
+    {"id": "geometric", "label": "Geometric scale", "color": "#4f7cac"},
+    {"id": "atomic",    "label": "Atomic scale",    "color": "#c97b63"},
+    {"id": "cognitive", "label": "Cognitive scale", "color": "#7aa974"},
+    {"id": "meta",      "label": "Meta — cross-scale pattern", "color": "#9b7aa9"}
+  ]
+}

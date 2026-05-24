@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="overview">
+    <h1>{{ meta.title or "Interspace" }}</h1>
+    {% if meta.description %}
+      <p class="overview__description">{{ meta.description }}</p>
+    {% endif %}
+
+    <dl class="stats">
+      <div class="stats__item"><dt>Nodes</dt><dd>{{ nodes | length }}</dd></div>
+      <div class="stats__item"><dt>Edges</dt><dd>{{ edges | length }}</dd></div>
+      <div class="stats__item"><dt>Clusters</dt><dd>{{ clusters | length }}</dd></div>
+    </dl>
+
+    <p class="overview__cta">
+      <a class="button button--primary" href="{{ asset_prefix }}lattice.html">Open lattice &rarr;</a>
+    </p>
+  </section>
+
+  {% if clusters %}
+    <section class="cluster-list">
+      <h2>Clusters</h2>
+      <ul class="cluster-list__items">
+        {% for cluster in clusters %}
+          {% set count = nodes | selectattr("cluster", "equalto", cluster.id) | list | length %}
+          <li class="cluster-list__item">
+            <a href="{{ asset_prefix }}clusters/{{ cluster.id }}.html" class="cluster-list__link">
+              {% if cluster.color %}
+                <span class="cluster-list__swatch" style="background:{{ cluster.color }}"></span>
+              {% endif %}
+              <span class="cluster-list__label">{{ cluster.label }}</span>
+              <span class="cluster-list__count">{{ count }} node{{ "s" if count != 1 else "" }}</span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  <section class="node-list">
+    <h2>All nodes</h2>
+    <ul class="node-list__items">
+      {% for node in nodes %}
+        <li class="node-list__item">
+          <a href="{{ asset_prefix }}nodes/{{ node.id }}.html">{{ node.label }}</a>
+          <span class="node-list__cluster">in {{ node.cluster }}</span>
+          {% if node.tags %}
+            <span class="node-list__tags">
+              {% for tag in node.tags %}
+                <span class="tag">{{ tag }}</span>
+              {% endfor %}
+            </span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+{% endblock %}

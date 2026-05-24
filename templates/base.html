@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ meta.title or "Interspace" }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ asset_prefix }}static/css/style.css">
+  {% block head_extra %}{% endblock %}
+</head>
+<body>
+  <header class="site-header">
+    <nav class="site-nav">
+      <a class="site-nav__brand" href="{{ asset_prefix }}index.html">{{ meta.title or "Interspace" }}</a>
+      <ul class="site-nav__links">
+        <li><a href="{{ asset_prefix }}index.html">Overview</a></li>
+        <li><a href="{{ asset_prefix }}lattice.html">Lattice</a></li>
+        {% if clusters %}
+          <li class="site-nav__dropdown">
+            <span>Clusters</span>
+            <ul>
+              {% for cluster in clusters %}
+                <li><a href="{{ asset_prefix }}clusters/{{ cluster.id }}.html">{{ cluster.label }}</a></li>
+              {% endfor %}
+            </ul>
+          </li>
+        {% endif %}
+      </ul>
+    </nav>
+  </header>
+
+  <main class="site-main">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      Rendered by <a href="https://github.com/DustyBasic" rel="noopener">Interspace</a>
+      {% if meta.source %}from <code>{{ meta.source }}</code>{% endif %}
+      {% if meta.epoch %}&middot; <time datetime="{{ meta.epoch }}">{{ meta.epoch }}</time>{% endif %}
+    </p>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

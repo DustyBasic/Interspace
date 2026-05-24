@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Lattice &mdash; {{ meta.title or "Interspace" }}{% endblock %}
+
+{% block head_extra %}
+  <script src="{{ asset_prefix }}static/js/cytoscape.min.js"></script>
+{% endblock %}
+
+{% block content %}
+  <section class="lattice">
+    <header class="lattice__header">
+      <h1>Lattice</h1>
+      <p class="lattice__hint">Click a node to open its page. Drag to pan, scroll to zoom.</p>
+    </header>
+
+    <div class="lattice__controls" role="group" aria-label="Lattice filters">
+      <label class="lattice__control">
+        <span class="lattice__control-label">Search</span>
+        <input id="lattice-search" type="search" placeholder="label, id, or tag…" autocomplete="off">
+      </label>
+      <label class="lattice__control">
+        <span class="lattice__control-label">Color by</span>
+        <select id="lattice-color-by">
+          <option value="cluster" selected>Cluster</option>
+          <option value="tag">Tag</option>
+        </select>
+      </label>
+      {% if has_archived %}
+        <label class="lattice__control lattice__control--toggle">
+          <span class="lattice__control-label">Archived</span>
+          <span class="lattice__toggle-row">
+            <input type="checkbox" id="lattice-include-archived" checked>
+            <span>Include archived ({{ archived_count }})</span>
+          </span>
+        </label>
+      {% endif %}
+      {% if all_tags %}
+        <div class="lattice__control lattice__control--tags">
+          <span class="lattice__control-label">Tags</span>
+          <div class="lattice__tag-chips" id="lattice-tag-chips">
+            {% for tag in all_tags %}
+              <button type="button" class="tag-chip" data-tag="{{ tag }}" aria-pressed="false">{{ tag }}</button>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+      {% if epoch_min_ms is not none and epoch_max_ms is not none and epoch_min_ms != epoch_max_ms %}
+        <div class="lattice__control lattice__control--time">
+          <span class="lattice__control-label">
+            Show up to <span id="lattice-time-label">{{ epoch_max_iso }}</span>
+          </span>
+          <input id="lattice-time" type="range"
+                 min="{{ epoch_min_ms }}" max="{{ epoch_max_ms }}" step="86400000"
+                 value="{{ epoch_max_ms }}">
+          <span class="lattice__time-range">{{ epoch_min_iso }} &mdash; {{ epoch_max_iso }}</span>
+        </div>
+      {% endif %}
+      <button type="button" id="lattice-clear" class="lattice__clear" hidden>Clear filters</button>
+    </div>
+
+    <div class="lattice-wrap">
+      <div id="lattice" class="lattice__canvas" role="img"
+           aria-label="Interactive graph of {{ nodes | length }} nodes and {{ edges | length }} edges">
+      </div>
+      <div class="lattice-zoom" role="group" aria-label="Zoom controls">
+        <button type="button" class="lattice-zoom__btn" data-zoom="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
+        <button type="button" class="lattice-zoom__btn" data-zoom="out" aria-label="Zoom out" title="Zoom out (-)">&minus;</button>
+        <button type="button" class="lattice-zoom__btn" data-zoom="fit" aria-label="Fit to view" title="Fit to view">&#x2922;</button>
+      </div>
+    </div>
+
+    <p id="lattice-status" class="lattice__status" aria-live="polite"></p>
+
+    {% if clusters %}
+      <aside class="lattice__legend" aria-label="Cluster legend">
+        <h2>Clusters</h2>
+        <ul>
+          {% for cluster in clusters %}
+            <li>
+              {% if cluster.color %}
+                <span class="lattice__legend-swatch" style="background:{{ cluster.color }}"></span>
+              {% endif %}
+              <a href="{{ asset_prefix }}clusters/{{ cluster.id }}.html">{{ cluster.label }}</a>
+            </li>
+          {% endfor %}
+        </ul>
+      </aside>
+    {% endif %}
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script id="lattice-data" type="application/json">{{ lattice_data_json | safe }}</script>
+  <script src="{{ asset_prefix }}static/js/lattice.js"></script>
+{% endblock %}

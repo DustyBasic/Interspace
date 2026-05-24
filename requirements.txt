@@ -1,0 +1,4 @@
+# Interspace runtime dependencies
+# Minimal — Python 3.11+ stdlib + jinja2 is the floor.
+
+jinja2>=3.1.0
