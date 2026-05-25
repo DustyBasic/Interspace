@@ -153,6 +153,30 @@
       return s + "|" + t + "|" + (e.kind || "related");
     }
 
+    // Resolution gate state must be declared BEFORE graph constructor —
+    // nodeVisibility/linkVisibility callbacks reference these at evaluation
+    // time, and var declarations are hoisted (so the symbol exists) but the
+    // assignment is not (so it'd read undefined → undefined>=2 is false →
+    // everything except folders gets filtered on first render).
+    var currentResLevel = 2;  // start fully visible until camera moves
+    function resolutionLevelFromDistance(d) {
+      if (d > RES_FAR_THRESHOLD) return 0;
+      if (d > RES_MEDIUM_THRESHOLD) return 1;
+      return 2;
+    }
+    function isVisibleAtResolution(n, level) {
+      if (level >= 2) return true;
+      var meta = n.meta || {};
+      var kind = meta.kind || null;
+      if (kind === "folder") return true;
+      if (level >= 1) {
+        if (kind && MID_KINDS[kind]) return true;
+        if (kind === null) return true; // hand-curated concept-only nodes
+        return false;
+      }
+      return false;
+    }
+
     var graph = ForceGraph3D()(container)
       .graphData({ nodes: nodes, links: links })
       .backgroundColor(getComputedStyle(document.body).backgroundColor || "#0d0e11")
@@ -261,28 +285,7 @@
       if (typeof graph.cooldownTicks === "function") graph.cooldownTicks(20);
     }
 
-    // Resolution gate state — 0=far (folders only), 1=medium (+ files/mids),
-    // 2=close (all atoms). Recomputed in animLoop; graph.refresh() fires
-    // only when the level transitions.
-    var currentResLevel = 2;  // start fully visible until camera moves
-    function resolutionLevelFromDistance(d) {
-      if (d > RES_FAR_THRESHOLD) return 0;
-      if (d > RES_MEDIUM_THRESHOLD) return 1;
-      return 2;
-    }
-    function isVisibleAtResolution(n, level) {
-      if (level >= 2) return true;
-      var meta = n.meta || {};
-      var kind = meta.kind || null;
-      if (kind === "folder") return true;
-      if (level >= 1) {
-        if (kind && MID_KINDS[kind]) return true;
-        if (kind === null) return true; // hand-curated concept-only nodes
-        return false;
-      }
-      // level 0: folders only
-      return false;
-    }
+    // (Resolution gate state hoisted above the graph constructor — see top.)
 
     function resize() {
       graph.width(container.clientWidth);

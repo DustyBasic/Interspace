@@ -50,18 +50,9 @@
       <p class="lattice__hint">
         Drag to rotate &middot; scroll to zoom &middot; right-click + drag to pan &middot; click a node to open its page.
       </p>
-      <div id="lattice-runners" class="lattice__runners" hidden>
-        <span class="lattice__runner lattice__runner--t-cell" title="T-cell — pairwise cross-source discovery">
-          <span class="lattice__runner-dot"></span>T-cell
-        </span>
-        <span class="lattice__runner lattice__runner--rel" title="REL — triple/clique binding">
-          <span class="lattice__runner-dot"></span>REL
-        </span>
-        <span class="lattice__runner lattice__runner--neg-t" title="NEG-T — inverse / contradiction (v2)">
-          <span class="lattice__runner-dot"></span>NEG-T
-        </span>
-        <span class="lattice__runner-status" id="lattice-runner-status">connecting&hellip;</span>
-      </div>
+      <p class="lattice__status-line">
+        <span id="lattice-runner-status" class="lattice__status" data-state="connecting">connecting&hellip;</span>
+      </p>
     </header>
 
     <div class="lattice-wrap">
