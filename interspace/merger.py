@@ -33,6 +33,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .content_classifier import enrich_lattice
 from .cross_refs import extract_cross_references
 
 
@@ -190,6 +191,13 @@ def merge_inputs(config: dict[str, Any], base_dir: Path | None = None) -> dict[s
         out["edges"].append(edge)
         cross_added += 1
     out["meta"]["_post_merge_cross_refs_added"] = cross_added
+
+    # Content-type classification (Stage 2 enrichment). Heuristic rule-based;
+    # tags each text-bearing node with `meta.content_type`, each file anchor
+    # with `meta.file_type`, and consecutive chat_turn runs with a shared
+    # `meta.conversation_segment_id`. Idempotent — re-running re-classifies.
+    classifier_stats = enrich_lattice(out["nodes"])
+    out["meta"]["_content_classification"] = classifier_stats
 
     return out
 

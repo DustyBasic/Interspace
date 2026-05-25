@@ -118,7 +118,7 @@
       cachedPositions = null;
     }
 
-    var nodes = data.nodes.map(function (n) {
+    var allNodes = data.nodes.map(function (n) {
       var out = {
         id: n.id,
         label: n.label || n.id,
@@ -126,20 +126,51 @@
         weight: typeof n.weight === "number" ? n.weight : 1.0,
         archived: !!n.archived,
         phase: n.phase || (n.archived ? "archived" : "current"),
-        tags: n.tags || []
+        tags: n.tags || [],
+        meta: n.meta || {}  // preserved for tier classification
       };
       if (cachedPositions) {
         var p = cachedPositions[n.id];
         if (p && p.length >= 3) {
-          // Seed positions so the simulation starts already-settled.
           out.x = p[0]; out.y = p[1]; out.z = p[2];
         }
       }
       return out;
     });
-    var links = (data.edges || []).map(function (e) {
+    var allLinks = (data.edges || []).map(function (e) {
       return { source: e.source, target: e.target, kind: e.kind || "related" };
     });
+
+    // Tier-progressive loading: structural shell first (folders + file
+    // anchors + composites + section_anchors + concept-only nodes).
+    // Atoms (paragraph / finding / observation) batch-load in chunks
+    // after the shell settles. Prevents browser crash on 35K-node
+    // initial graphData() — the force simulation can't sustain that
+    // many nodes from a cold start.
+    var ATOM_KINDS_SET = { paragraph: 1, finding: 1, observation: 1 };
+    var structuralNodes = [];
+    var atomNodes = [];
+    var nodeIdSet = {};  // ids of currently-loaded nodes (for link filtering)
+    allNodes.forEach(function (n) {
+      var k = n.meta.kind;
+      if (k && ATOM_KINDS_SET[k]) {
+        atomNodes.push(n);
+      } else {
+        structuralNodes.push(n);
+        nodeIdSet[n.id] = true;
+      }
+    });
+    function linksForLoadedNodes(loadedIdSet) {
+      return allLinks.filter(function (l) {
+        var s = (typeof l.source === "object" ? l.source.id : l.source);
+        var t = (typeof l.target === "object" ? l.target.id : l.target);
+        return loadedIdSet[s] && loadedIdSet[t];
+      });
+    }
+
+    // Start with just structural nodes — small, fast initial render.
+    var nodes = structuralNodes;
+    var links = linksForLoadedNodes(nodeIdSet);
 
     // Endpoint glow (TRANSIENT only — used for new-edge pulses, not for
     // runner presence). Runners themselves are Three.js globe meshes.
@@ -246,12 +277,41 @@
     // only resumes when a new edge fires (brief alpha-target reheat).
     var alphaSettleTimeout = null;
 
+    // Tier-progressive atom loader. Fires once after the structural
+    // shell settles; appends atoms in batches with brief delays so the
+    // force simulation can keep up. Each batch reheats partially via the
+    // existing alpha-target machinery rather than re-cold-starting the
+    // whole layout. Idempotent (only loads atoms once even if engine
+    // stops multiple times).
+    var ATOM_BATCH_SIZE = 2000;
+    var ATOM_BATCH_DELAY_MS = 500;
+    var atomLoadStarted = false;
+    function loadAtomBatch(startIdx) {
+      var endIdx = Math.min(startIdx + ATOM_BATCH_SIZE, atomNodes.length);
+      var batch = atomNodes.slice(startIdx, endIdx);
+      batch.forEach(function (n) { nodeIdSet[n.id] = true; });
+      var current = graph.graphData();
+      var newNodes = current.nodes.concat(batch);
+      var newLinks = linksForLoadedNodes(nodeIdSet);
+      graph.graphData({ nodes: newNodes, links: newLinks });
+      // Rebuild nodeIndex incrementally so runner walks find new atoms
+      batch.forEach(function (n) { nodeIndex[n.id] = n; });
+      if (endIdx < atomNodes.length) {
+        setTimeout(function () { loadAtomBatch(endIdx); }, ATOM_BATCH_DELAY_MS);
+      }
+    }
+
     // Position cache: persist on simulation stop so the next page load
     // restores the settled layout instantly instead of re-running force
     // simulation from random initial positions. With 35K-node lattices
     // the savings is measured in seconds-per-refresh.
     if (typeof graph.onEngineStop === "function") {
       graph.onEngineStop(function () {
+        // First-time hook: structural shell has settled → start loading atoms.
+        if (!atomLoadStarted && atomNodes.length > 0) {
+          atomLoadStarted = true;
+          setTimeout(function () { loadAtomBatch(0); }, ATOM_BATCH_DELAY_MS);
+        }
         try {
           var snap = {};
           graph.graphData().nodes.forEach(function (n) {

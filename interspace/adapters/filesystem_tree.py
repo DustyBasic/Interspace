@@ -347,37 +347,76 @@ def _paragraph_nodes(
     return out
 
 
+_QUOTE_PREFIX_RE = re.compile(r"^\s*>")  # any line starting with `>` (incl. bare `>>` separators inside the paste)
+
+
+def _is_quoted_block(s: str) -> bool:
+    """All non-empty lines start with `>>` or `>` (a quoted/pasted block —
+    typically GPT/chat responses someone cut-and-pasted into a .txt). These
+    pastes often have internal blank lines separating logical sections of
+    the same paste, which over-shred under blank-line splitting."""
+    lines = [l for l in s.split("\n") if l.strip()]
+    if len(lines) < 1:
+        return False
+    return all(_QUOTE_PREFIX_RE.match(l) for l in lines)
+
+
 def _split_paragraphs(text: str) -> list[str]:
-    """Split text into paragraphs (one node per blank-line block).
+    """Split text into paragraphs (one node per blank-line block) with
+    content-type self-identification for paste-block coalescing.
 
     Dictionary-grain design: each paragraph is its own addressable atom.
     Dense archives (brain_candy, secret_candy, governance docs) carry
     singular value per paragraph — a chat turn, a definition, an axiom,
     a sticky — so we preserve that granularity rather than coalescing.
 
+    Type-aware coalescing: consecutive `>`/`>>`-quoted paragraphs (GPT
+    cut-and-paste responses where internal blank lines separated logical
+    sections of one cohesive paste) get merged into one chunk. Prose
+    between paste blocks stays standalone. Extensible: future patterns
+    (fenced code ```, uniform-indent code) plug in via additional
+    type-detection predicates.
+
     Filters: section anchors always survive (structural landmarks); chunks
     below _MIN_PARAGRAPH_CHARS alnum count get dropped as noise (ruler
     lines of `===` / `---`, single-word labels, blank-ish fragments).
-    Cleanup of redundant or near-duplicate paragraph nodes across files
-    is a runner-side concern (the future red runner's beat), not
-    extraction-side.
     """
     raw = re.split(r"\n\s*\n+", text)
-    out = []
+    out: list[str] = []
+    pending_quoted: list[str] = []
+
+    def flush_quoted() -> None:
+        if not pending_quoted:
+            return
+        combined = "\n\n".join(pending_quoted)
+        # Apply same noise-filter to the coalesced chunk
+        alnum = sum(1 for c in combined if c.isalnum())
+        if alnum >= _MIN_PARAGRAPH_CHARS:
+            out.append(combined)
+        pending_quoted.clear()
+
     for chunk in raw:
         s = chunk.strip()
         if not s:
             continue
         # Section-header paragraphs (e.g. "===\n6C. IRON LAW (...)\n===")
-        # often have too few alnum chars on their own; whitelist them so
-        # the anchor survives + remains a §-reference target.
+        # always break paste-coalescing and stand alone.
         if _is_section_anchor(s):
+            flush_quoted()
             out.append(s)
             continue
+        # Paste-block detection — accumulate consecutive quoted blocks.
+        if _is_quoted_block(s):
+            pending_quoted.append(s)
+            continue
+        # Regular prose: flush any pending paste-block first, then handle.
+        flush_quoted()
         alnum = sum(1 for c in s if c.isalnum())
         if alnum < _MIN_PARAGRAPH_CHARS:
             continue
         out.append(s)
+
+    flush_quoted()
     return out
 
 
