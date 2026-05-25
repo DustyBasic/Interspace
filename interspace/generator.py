@@ -364,6 +364,29 @@ def _compute_document_paragraphs(
             paras = by_source.get(str(m["path"]))
             if paras:
                 result[n["id"]] = paras
+
+    # Conversation-segment anchors map to ONLY their member chat_turns
+    # (the slice of paragraphs in start_paragraph_index..end_paragraph_index
+    # of the source_file). Clicking a segment anchor renders the scene's
+    # dialogue lines scrollable, scoped to that segment.
+    for n in nodes:
+        m = n.get("meta") or {}
+        if m.get("kind") != "conversation_segment":
+            continue
+        sf = m.get("source_file")
+        start_idx = m.get("start_paragraph_index")
+        end_idx = m.get("end_paragraph_index")
+        if not sf or start_idx is None or end_idx is None:
+            continue
+        all_paras = by_source.get(str(sf), [])
+        # Slice paragraphs whose paragraph_index is in [start, end]
+        scoped = [
+            p for p in all_paras
+            if start_idx <= (p.get("meta") or {}).get("paragraph_index", -1) <= end_idx
+        ]
+        if scoped:
+            result[n["id"]] = scoped
+
     return result
 
 

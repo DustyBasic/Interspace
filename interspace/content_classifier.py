@@ -428,3 +428,127 @@ def enrich_lattice(
                 < max(pass_stats[-2]["changes_from_prev"] // 2, 10)
         ),
     }
+
+
+_SEG_ID_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def emit_conversation_segment_anchors(
+    nodes: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Promote each distinct `conversation_segment_id` (set by the
+    classifier on chat_turn paragraphs) to a first-class node.
+
+    For each segment:
+      - Emit one `conversation_segment` anchor node (kind="conversation_segment")
+      - Emit `contains` edges from anchor → each member chat_turn
+      - Emit a `contains` edge from the parent file_anchor → this segment
+
+    Existing file_anchor → chat_turn `contains` edges are preserved
+    (parallel containment — file is the structural container; segment
+    is the semantic grouping). Visual layer chooses which to show at
+    which zoom tier.
+
+    Returns (new_nodes, new_edges). Caller appends them to the merge
+    payload after enrich_lattice has classified + segmented.
+    """
+    # Group chat_turn paragraphs by their conversation_segment_id
+    by_segment: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for n in nodes:
+        meta = n.get("meta") or {}
+        seg_id = meta.get("conversation_segment_id")
+        if seg_id:
+            by_segment[seg_id].append(n)
+
+    # File-anchor lookup by path
+    file_anchor_by_path: dict[str, dict[str, Any]] = {}
+    for n in nodes:
+        meta = n.get("meta") or {}
+        if meta.get("kind") == "file":
+            path = meta.get("path", "")
+            if path:
+                file_anchor_by_path[path] = n
+
+    new_nodes: list[dict[str, Any]] = []
+    new_edges: list[dict[str, Any]] = []
+
+    for seg_id, members in by_segment.items():
+        if not members:
+            continue
+        members_sorted = sorted(
+            members,
+            key=lambda n: (n.get("meta") or {}).get("paragraph_index", 0),
+        )
+        first = members_sorted[0]
+        last = members_sorted[-1]
+        first_meta = first.get("meta") or {}
+        source_file = first_meta.get("source_file", "") or ""
+        cluster = first.get("cluster", "uncategorized")
+
+        # Preview content: first turn's full content + first lines of next turns
+        preview_chunks = []
+        for m in members_sorted[: min(5, len(members_sorted))]:
+            content = (m.get("meta") or {}).get("content", "") or ""
+            preview_chunks.append(content.strip())
+        combined_preview = "\n\n".join(preview_chunks)
+        if len(members_sorted) > 5:
+            combined_preview += f"\n\n[... {len(members_sorted) - 5} more turns]"
+
+        # Short label = first turn's content one-liner
+        first_content = first_meta.get("content", "") or ""
+        first_line = " ".join(first_content.split())
+        if len(first_line) > 70:
+            first_line = first_line[:69] + "…"
+        seg_label_suffix = seg_id.split("::")[-1] if "::" in seg_id else seg_id
+
+        # Stable id from segment_id (already file-path-prefixed + numbered)
+        safe_id = _SEG_ID_SAFE_RE.sub("_", seg_id.replace("::", "."))
+        anchor_id = f"fs.segment.{safe_id}"
+
+        # File-stem tag groups segments visually with their parent file
+        file_stem = source_file.rsplit("/", 1)[-1] if "/" in source_file else source_file
+        if file_stem.endswith(".txt") or file_stem.endswith(".md"):
+            file_stem = file_stem.rsplit(".", 1)[0]
+
+        # Weight scales gently with member count
+        weight = min(2.4, 1.0 + (len(members_sorted) ** 0.4) * 0.15)
+
+        anchor_node = {
+            "id": anchor_id,
+            "label": f"{seg_label_suffix} — {first_line}" if first_line else f"Conversation segment {seg_label_suffix}",
+            "cluster": cluster,
+            "tags": ["filesystem", "conversation_segment", file_stem],
+            "weight": round(weight, 2),
+            "meta": {
+                "kind": "conversation_segment",
+                "segment_id": seg_id,
+                "source_file": source_file,
+                "member_count": len(members_sorted),
+                "start_paragraph_index": first_meta.get("paragraph_index"),
+                "end_paragraph_index": (last.get("meta") or {}).get("paragraph_index"),
+                "content": combined_preview,  # First 5 turns + count of remainder; node page renders as readable preview
+            },
+        }
+        new_nodes.append(anchor_node)
+
+        # Containment: segment_anchor -> each member chat_turn
+        for m in members_sorted:
+            new_edges.append({
+                "source": anchor_id,
+                "target": m["id"],
+                "kind": "contains",
+                "weight": 1.0,
+            })
+
+        # Containment: file_anchor -> this segment_anchor (so file pages
+        # surface segments as direct children alongside loose paragraphs)
+        file_anchor = file_anchor_by_path.get(source_file)
+        if file_anchor:
+            new_edges.append({
+                "source": file_anchor["id"],
+                "target": anchor_id,
+                "kind": "contains",
+                "weight": 1.0,
+            })
+
+    return new_nodes, new_edges

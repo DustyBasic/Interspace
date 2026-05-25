@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .content_classifier import enrich_lattice
+from .content_classifier import emit_conversation_segment_anchors, enrich_lattice
 from .cross_refs import extract_cross_references
 
 
@@ -198,6 +198,20 @@ def merge_inputs(config: dict[str, Any], base_dir: Path | None = None) -> dict[s
     # `meta.conversation_segment_id`. Idempotent — re-running re-classifies.
     classifier_stats = enrich_lattice(out["nodes"])
     out["meta"]["_content_classification"] = classifier_stats
+
+    # Promote conversation segments to first-class nodes. Each segment
+    # gets a `conversation_segment` anchor with `contains` edges to its
+    # member chat_turns + a containment edge from the parent file anchor.
+    # Pi shell tier — file → segment → turn — so chat-heavy archives
+    # become navigable at the scene/exchange level instead of just at
+    # line-of-dialogue level.
+    seg_nodes, seg_edges = emit_conversation_segment_anchors(out["nodes"])
+    out["nodes"].extend(seg_nodes)
+    out["edges"].extend(seg_edges)
+    out["meta"]["_conversation_segment_anchors"] = {
+        "anchors_emitted": len(seg_nodes),
+        "containment_edges_emitted": len(seg_edges),
+    }
 
     return out
 
