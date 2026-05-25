@@ -33,6 +33,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .cross_refs import extract_cross_references
+
 
 VALID_PHASES = {"current", "foundation", "archived"}
 
@@ -169,6 +171,25 @@ def merge_inputs(config: dict[str, Any], base_dir: Path | None = None) -> dict[s
             c.setdefault("phase", phase)
             seen_cluster_ids.add(new_id)
             out["clusters"].append(c)
+
+    # Post-merge cross-reference pass — deterministic Stage 1 regex extraction
+    # over the combined prefix-namespaced node set. Catches cross-source mentions
+    # that no single adapter could resolve on its own (e.g. a graphic_mem
+    # sticky mentioning a file that lives in gov_alignment, or a paragraph in
+    # one foundation referencing a file in another). Dedupes against edges
+    # already emitted by each adapter so intra-source edges aren't doubled.
+    existing_edge_keys = {
+        (e.get("source"), e.get("target"), e.get("kind")) for e in out["edges"]
+    }
+    cross_added = 0
+    for edge in extract_cross_references(out["nodes"]):
+        key = (edge["source"], edge["target"], edge["kind"])
+        if key in existing_edge_keys:
+            continue
+        existing_edge_keys.add(key)
+        out["edges"].append(edge)
+        cross_added += 1
+    out["meta"]["_post_merge_cross_refs_added"] = cross_added
 
     return out
 

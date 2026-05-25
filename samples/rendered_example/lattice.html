@@ -14,7 +14,8 @@
       } catch (e) {}
     })();
   </script>
-  <script src="static/js/cytoscape.min.js"></script>
+  <script src="static/js/three.min.js"></script>
+  <script src="static/js/3d-force-graph.min.js"></script>
 </head>
 <body>
   <header class="site-header">
@@ -47,57 +48,32 @@
     <header class="lattice__header">
       <h1>Lattice</h1>
       <p class="lattice__hint">
-        Click a node to open its page. Drag to pan, scroll to zoom.
-        <a href="lattice_3d.html" class="lattice__view-switch">3D view &raquo;</a>
+        Drag to rotate &middot; scroll to zoom &middot; right-click + drag to pan &middot; click a node to open its page.
       </p>
+      <div id="lattice-runners" class="lattice__runners" hidden>
+        <span class="lattice__runner lattice__runner--t-cell" title="T-cell — pairwise cross-source discovery">
+          <span class="lattice__runner-dot"></span>T-cell
+        </span>
+        <span class="lattice__runner lattice__runner--rel" title="REL — triple/clique binding">
+          <span class="lattice__runner-dot"></span>REL
+        </span>
+        <span class="lattice__runner lattice__runner--neg-t" title="NEG-T — inverse / contradiction (v2)">
+          <span class="lattice__runner-dot"></span>NEG-T
+        </span>
+        <span class="lattice__runner-status" id="lattice-runner-status">connecting&hellip;</span>
+      </div>
     </header>
 
-    <div class="lattice__controls" role="group" aria-label="Lattice filters">
-      <label class="lattice__control">
-        <span class="lattice__control-label">Search</span>
-        <input id="lattice-search" type="search" placeholder="label, id, or tag…" autocomplete="off">
-      </label>
-      <label class="lattice__control">
-        <span class="lattice__control-label">Color by</span>
-        <select id="lattice-color-by">
-          <option value="cluster" selected>Cluster</option>
-          <option value="tag">Tag</option>
-        </select>
-      </label>
-        <div class="lattice__control lattice__control--tags">
-          <span class="lattice__control-label">Tags</span>
-          <div class="lattice__tag-chips" id="lattice-tag-chips">
-              <button type="button" class="tag-chip" data-tag="5-fold" aria-pressed="false">5-fold</button>
-              <button type="button" class="tag-chip" data-tag="3-fold" aria-pressed="false">3-fold</button>
-              <button type="button" class="tag-chip" data-tag="pattern" aria-pressed="false">pattern</button>
-              <button type="button" class="tag-chip" data-tag="ratio" aria-pressed="false">ratio</button>
-              <button type="button" class="tag-chip" data-tag="shape" aria-pressed="false">shape</button>
-          </div>
-        </div>
-        <div class="lattice__control lattice__control--time">
-          <span class="lattice__control-label">
-            Show up to <span id="lattice-time-label">2026-05-01</span>
-          </span>
-          <input id="lattice-time" type="range"
-                 min="1768435200000" max="1777593600000" step="86400000"
-                 value="1777593600000">
-          <span class="lattice__time-range">2026-01-15 &mdash; 2026-05-01</span>
-        </div>
-      <button type="button" id="lattice-clear" class="lattice__clear" hidden>Clear filters</button>
-    </div>
-
     <div class="lattice-wrap">
-      <div id="lattice" class="lattice__canvas" role="img"
-           aria-label="Interactive graph of 6 nodes and 6 edges">
+      <div id="lattice-3d" class="lattice__canvas lattice__canvas--3d" role="img"
+           aria-label="Interactive 3D graph of 6 nodes and 6 edges">
       </div>
       <div class="lattice-zoom" role="group" aria-label="Zoom controls">
-        <button type="button" class="lattice-zoom__btn" data-zoom="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
-        <button type="button" class="lattice-zoom__btn" data-zoom="out" aria-label="Zoom out" title="Zoom out (-)">&minus;</button>
+        <button type="button" class="lattice-zoom__btn" data-zoom="in" aria-label="Zoom in" title="Zoom in">+</button>
+        <button type="button" class="lattice-zoom__btn" data-zoom="out" aria-label="Zoom out" title="Zoom out">&minus;</button>
         <button type="button" class="lattice-zoom__btn" data-zoom="fit" aria-label="Fit to view" title="Fit to view">&#x2922;</button>
       </div>
     </div>
-
-    <p id="lattice-status" class="lattice__status" aria-live="polite"></p>
 
       <aside class="lattice__legend" aria-label="Cluster legend">
         <h2>Clusters</h2>
@@ -131,6 +107,6 @@ from <code>hand-authored@0.1</code>&middot; <time datetime="2026-05-23">2026-05-
 
   <script src="static/js/theme.js"></script>
   <script id="lattice-data" type="application/json">{"nodes":[{"id":"pentagon","label":"Pentagon","cluster":"geometric","weight":1.5,"tags":["shape","5-fold"],"ts":1768435200000},{"id":"phi","label":"Phi (\u03c6)","cluster":"geometric","weight":1.0,"tags":["ratio"],"ts":1769904000000},{"id":"triad","label":"Triad","cluster":"geometric","weight":1.0,"tags":["3-fold"],"ts":1771545600000},{"id":"phosphorus","label":"Phosphorus 5-valence","cluster":"atomic","weight":1.0,"tags":["5-fold"],"ts":1773100800000},{"id":"panchakoshas","label":"Panchakoshas (5 sheaths)","cluster":"cognitive","weight":1.0,"tags":["5-fold"],"ts":1775347200000},{"id":"five_fold","label":"5-fold structure","cluster":"meta","weight":2.0,"tags":["pattern"],"ts":1777593600000}],"edges":[{"source":"pentagon","target":"phi","kind":"derives","weight":1.0},{"source":"pentagon","target":"five_fold","kind":"instantiates","weight":1.0},{"source":"phosphorus","target":"five_fold","kind":"instantiates","weight":1.0},{"source":"panchakoshas","target":"five_fold","kind":"instantiates","weight":1.0},{"source":"phi","target":"pentagon","kind":"embedded_in","weight":0.5},{"source":"triad","target":"pentagon","kind":"extends_to","weight":1.0}],"clusters":[{"id":"geometric","label":"Geometric scale","color":"#4f7cac"},{"id":"atomic","label":"Atomic scale","color":"#c97b63"},{"id":"cognitive","label":"Cognitive scale","color":"#7aa974"},{"id":"meta","label":"Meta \u2014 cross-scale pattern","color":"#9b7aa9"}]}</script>
-  <script src="static/js/lattice.js"></script>
+  <script src="static/js/lattice_3d.js"></script>
 </body>
 </html>

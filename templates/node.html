@@ -60,6 +60,28 @@
       </section>
     {% endif %}
 
+    {% if node.meta and (node.meta.summary or node.meta.key_findings or node.meta.relevance or node.meta.child_count) %}
+      <section class="node__curated">
+        {% if node.meta.summary %}
+          <h2>Summary</h2>
+          <p class="node__summary">{{ node.meta.summary }}</p>
+        {% endif %}
+        {% if node.meta.key_findings %}
+          <h2>Key findings <span class="count">({{ node.meta.key_findings | length }})</span></h2>
+          <ul class="node__key-findings">
+            {% for finding in node.meta.key_findings %}<li>{{ finding }}</li>{% endfor %}
+          </ul>
+        {% endif %}
+        {% if node.meta.relevance %}
+          <h2>Relevance</h2>
+          <p class="node__relevance">{{ node.meta.relevance }}</p>
+        {% endif %}
+        {% if node.meta.child_count %}
+          <h2>Children <span class="count node__children-count">({{ node.meta.child_count }})</span></h2>
+        {% endif %}
+      </section>
+    {% endif %}
+
     {% if document_paragraphs and document_paragraphs | length > 1 %}
       <section class="node__document-context">
         <h2>Source document <span class="count">({{ document_paragraphs | length }} paragraphs in {{ node.meta.source_file }})</span></h2>
@@ -110,10 +132,33 @@
       </nav>
     {% endif %}
 
+    {% for edge in outgoing if edge.kind in ['full_doctrine_of', 'temporal_variant_of'] %}
+      {% if loop.first %}
+        <nav class="node__linked-continuations" aria-label="Linked continuations">
+          <h2>Linked continuations <span class="count">({{ loop.length }})</span></h2>
+          <div class="node__continuations-list">
+      {% endif %}
+            <a class="node__continuation node__continuation--{{ edge.kind }}"
+               href="{{ asset_prefix }}nodes/{{ edge.target }}.html">
+              <span class="node__continuation-kind">{{ edge.kind | replace('_', ' ') }} &rarr;</span>
+              <span class="node__continuation-title">{{ edge.target_label }}</span>
+              <span class="cluster-tag">[{{ edge.target_cluster }}]</span>
+              {% if edge.meta and edge.meta.quote %}
+                <span class="node__continuation-quote">&ldquo;{{ edge.meta.quote }}&rdquo;</span>
+              {% endif %}
+            </a>
+      {% if loop.last %}
+          </div>
+        </nav>
+      {% endif %}
+    {% endfor %}
+
     {% if node.meta %}
       <section class="node__adapter-meta">
-        <h2>Adapter metadata</h2>
-        <pre class="adapter-meta">{{ node.meta | tojson(indent=2) }}</pre>
+        <details>
+          <summary>Adapter metadata (raw JSON)</summary>
+          <pre class="adapter-meta">{{ node.meta | tojson(indent=2) }}</pre>
+        </details>
       </section>
     {% endif %}
 
@@ -126,6 +171,9 @@
               <span class="edge-kind">{{ edge.kind }} &rarr;</span>
               <a href="{{ asset_prefix }}nodes/{{ edge.target }}.html">{{ edge.target_label }}</a>
               <span class="cluster-tag">[{{ edge.target_cluster }}]</span>
+              {% if edge.meta and edge.meta.quote %}
+                <p class="edge-quote">&ldquo;{{ edge.meta.quote }}&rdquo;</p>
+              {% endif %}
             </li>
           {% endfor %}
         </ul>
@@ -141,6 +189,9 @@
               <a href="{{ asset_prefix }}nodes/{{ edge.source }}.html">{{ edge.source_label }}</a>
               <span class="cluster-tag">[{{ edge.source_cluster }}]</span>
               <span class="edge-kind">&mdash; {{ edge.kind }} &rarr;</span>
+              {% if edge.meta and edge.meta.quote %}
+                <p class="edge-quote">&ldquo;{{ edge.meta.quote }}&rdquo;</p>
+              {% endif %}
             </li>
           {% endfor %}
         </ul>
@@ -149,4 +200,15 @@
       {% endif %}
     </section>
   </article>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    var cur = document.getElementById('current-para');
+    if (cur && cur.scrollIntoView) {
+      cur.scrollIntoView({ block: 'center' });
+    }
+  })();
+</script>
 {% endblock %}

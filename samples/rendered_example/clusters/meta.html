@@ -14,7 +14,6 @@
       } catch (e) {}
     })();
   </script>
-    <script src="../static/js/cytoscape.min.js"></script>
 </head>
 <body>
   <header class="site-header">
@@ -51,19 +50,6 @@
         <a href="../index.html">Overview</a> &rsaquo; Clusters &rsaquo; <strong>Meta — cross-scale pattern</strong>
       </p>
     </header>
-
-      <section class="cluster__mini-lattice">
-        <h2>Mini-lattice <span class="count">(1 node, 0 edges)</span></h2>
-        <div class="lattice-wrap">
-          <div id="cluster-lattice" class="cluster__lattice-canvas" role="img"
-               aria-label="Intra-cluster lattice of 1 nodes"></div>
-          <div class="lattice-zoom" role="group" aria-label="Zoom controls">
-            <button type="button" class="lattice-zoom__btn" data-zoom="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
-            <button type="button" class="lattice-zoom__btn" data-zoom="out" aria-label="Zoom out" title="Zoom out (-)">&minus;</button>
-            <button type="button" class="lattice-zoom__btn" data-zoom="fit" aria-label="Fit to view" title="Fit to view">&#x2922;</button>
-          </div>
-        </div>
-      </section>
 
     <section class="cluster__nodes">
       <h2>Nodes <span class="count">(1)</span></h2>
@@ -115,7 +101,5 @@ from <code>hand-authored@0.1</code>&middot; <time datetime="2026-05-23">2026-05-
   </footer>
 
   <script src="../static/js/theme.js"></script>
-    <script id="cluster-data" type="application/json">{"cluster_id":"meta","cluster_color":"#9b7aa9","nodes":[{"id":"five_fold","label":"5-fold structure","weight":2.0,"ts":1777593600000}],"edges":[]}</script>
-    <script src="../static/js/cluster_lattice.js"></script>
 </body>
 </html>

@@ -2,12 +2,6 @@
 
 {% block title %}{{ cluster.label }} &mdash; {{ meta.title or "Interspace" }}{% endblock %}
 
-{% block head_extra %}
-  {% if cluster_nodes %}
-    <script src="{{ asset_prefix }}static/js/cytoscape.min.js"></script>
-  {% endif %}
-{% endblock %}
-
 {% block content %}
   <article class="cluster">
     <header class="cluster__header">
@@ -19,35 +13,6 @@
         <a href="{{ asset_prefix }}index.html">Overview</a> &rsaquo; Clusters &rsaquo; <strong>{{ cluster.label }}</strong>
       </p>
     </header>
-
-    {% if cluster_nodes %}
-      <section class="cluster__mini-lattice">
-        <h2>Mini-lattice <span class="count">({{ cluster_nodes | length }} node{{ "s" if cluster_nodes | length != 1 else "" }}, {{ intra_edges | length }} edge{{ "s" if intra_edges | length != 1 else "" }})</span></h2>
-        {% if cluster_epoch_min_ms is not none and cluster_epoch_max_ms is not none and cluster_epoch_min_ms != cluster_epoch_max_ms %}
-          <div class="lattice__controls cluster__mini-controls">
-            <label class="lattice__control lattice__control--time">
-              <span class="lattice__control-label">
-                Show up to <span id="cluster-time-label">{{ cluster_epoch_max_iso }}</span>
-              </span>
-              <input id="cluster-time" type="range"
-                     min="{{ cluster_epoch_min_ms }}" max="{{ cluster_epoch_max_ms }}" step="86400000"
-                     value="{{ cluster_epoch_max_ms }}">
-              <span class="lattice__time-range">{{ cluster_epoch_min_iso }} &mdash; {{ cluster_epoch_max_iso }}</span>
-            </label>
-            <p id="cluster-time-status" class="lattice__status" aria-live="polite"></p>
-          </div>
-        {% endif %}
-        <div class="lattice-wrap">
-          <div id="cluster-lattice" class="cluster__lattice-canvas" role="img"
-               aria-label="Intra-cluster lattice of {{ cluster_nodes | length }} nodes"></div>
-          <div class="lattice-zoom" role="group" aria-label="Zoom controls">
-            <button type="button" class="lattice-zoom__btn" data-zoom="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
-            <button type="button" class="lattice-zoom__btn" data-zoom="out" aria-label="Zoom out" title="Zoom out (-)">&minus;</button>
-            <button type="button" class="lattice-zoom__btn" data-zoom="fit" aria-label="Fit to view" title="Fit to view">&#x2922;</button>
-          </div>
-        </div>
-      </section>
-    {% endif %}
 
     <section class="cluster__nodes">
       <h2>Nodes <span class="count">({{ cluster_nodes | length }})</span></h2>
@@ -111,11 +76,4 @@
       {% endif %}
     </section>
   </article>
-{% endblock %}
-
-{% block scripts %}
-  {% if cluster_nodes %}
-    <script id="cluster-data" type="application/json">{{ cluster_lattice_data_json | safe }}</script>
-    <script src="{{ asset_prefix }}static/js/cluster_lattice.js"></script>
-  {% endif %}
 {% endblock %}

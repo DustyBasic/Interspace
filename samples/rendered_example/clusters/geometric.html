@@ -14,7 +14,6 @@
       } catch (e) {}
     })();
   </script>
-    <script src="../static/js/cytoscape.min.js"></script>
 </head>
 <body>
   <header class="site-header">
@@ -51,31 +50,6 @@
         <a href="../index.html">Overview</a> &rsaquo; Clusters &rsaquo; <strong>Geometric scale</strong>
       </p>
     </header>
-
-      <section class="cluster__mini-lattice">
-        <h2>Mini-lattice <span class="count">(3 nodes, 3 edges)</span></h2>
-          <div class="lattice__controls cluster__mini-controls">
-            <label class="lattice__control lattice__control--time">
-              <span class="lattice__control-label">
-                Show up to <span id="cluster-time-label">2026-02-20</span>
-              </span>
-              <input id="cluster-time" type="range"
-                     min="1768435200000" max="1771545600000" step="86400000"
-                     value="1771545600000">
-              <span class="lattice__time-range">2026-01-15 &mdash; 2026-02-20</span>
-            </label>
-            <p id="cluster-time-status" class="lattice__status" aria-live="polite"></p>
-          </div>
-        <div class="lattice-wrap">
-          <div id="cluster-lattice" class="cluster__lattice-canvas" role="img"
-               aria-label="Intra-cluster lattice of 3 nodes"></div>
-          <div class="lattice-zoom" role="group" aria-label="Zoom controls">
-            <button type="button" class="lattice-zoom__btn" data-zoom="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
-            <button type="button" class="lattice-zoom__btn" data-zoom="out" aria-label="Zoom out" title="Zoom out (-)">&minus;</button>
-            <button type="button" class="lattice-zoom__btn" data-zoom="fit" aria-label="Fit to view" title="Fit to view">&#x2922;</button>
-          </div>
-        </div>
-      </section>
 
     <section class="cluster__nodes">
       <h2>Nodes <span class="count">(3)</span></h2>
@@ -144,7 +118,5 @@ from <code>hand-authored@0.1</code>&middot; <time datetime="2026-05-23">2026-05-
   </footer>
 
   <script src="../static/js/theme.js"></script>
-    <script id="cluster-data" type="application/json">{"cluster_id":"geometric","cluster_color":"#4f7cac","nodes":[{"id":"pentagon","label":"Pentagon","weight":1.5,"ts":1768435200000},{"id":"phi","label":"Phi (\u03c6)","weight":1.0,"ts":1769904000000},{"id":"triad","label":"Triad","weight":1.0,"ts":1771545600000}],"edges":[{"source":"pentagon","target":"phi","kind":"derives","weight":1.0},{"source":"phi","target":"pentagon","kind":"embedded_in","weight":0.5},{"source":"triad","target":"pentagon","kind":"extends_to","weight":1.0}]}</script>
-    <script src="../static/js/cluster_lattice.js"></script>
 </body>
 </html>

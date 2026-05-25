@@ -29,6 +29,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..cross_refs import (
+    SECTION_ANCHOR_RE,
+    extract_cross_references,
+    try_repair_mojibake,
+)
+
 
 _DEFAULT_EXCLUDES = (".*", "*.pyc", "__pycache__", "node_modules", "*.bak")
 _DEFAULT_DENSITY = 3
@@ -37,15 +43,32 @@ _DEFAULT_CLUSTER_DEPTH = 1
 # Text-bearing extensions whose content gets paragraph-exploded (when the file
 # is below `--explode-size` and not part of a density-collapsed group).
 _TEXT_EXTS = frozenset({".txt", ".md", ".markdown", ".rst", ".org"})
-_DEFAULT_EXPLODE_SIZE = 100_000  # files larger than this stay atomic
-_MIN_PARAGRAPH_CHARS = 40        # paragraphs shorter than this get dropped (noise)
+_DEFAULT_EXPLODE_SIZE = 500_000  # text files up to this get paragraph-extracted
+_MIN_PARAGRAPH_CHARS = 40        # paragraphs below this (alnum count) get dropped as noise (ruler lines, micro-fragments)
 _LABEL_MAX = 80
+# Atomic-file content embedding: read body for non-binary files up to this size.
+# Caps at 500KB to keep the .html page reasonable while covering most preserved
+# artifacts. Files above stay anchor-only — true outliers that need their own
+# treatment (chunked viewer / external link).
+_ATOMIC_CONTENT_MAX_BYTES = 500_000
 
 _TIMESTAMP_RE = re.compile(r"^(.+?)_\d{4,8}[_-]?\d{0,6}[A-Z]?$")
 _VERSION_RE = re.compile(r"^(.+?)[._-]v\d+(\.\d+)*$")
 _NUMBERED_RE = re.compile(r"^(\d{2,4})[._-](.+)$")
 _CURRENT_RE = re.compile(r"^CURRENT[_-](.+)$", re.IGNORECASE)
 _CHECKSUM_RE = re.compile(r"^(CHECKSUMS?_[A-Z0-9]+)_.*$")
+
+# A divider line of repeated `=`, `-`, or `_` (3+). Required to co-occur with the
+# section pattern to qualify as a section anchor — distinguishes title blocks
+# (which have `===` decorators) from numbered list items (which don't).
+_DIVIDER_LINE_RE = re.compile(r"^[=\-_]{3,}\s*$", re.MULTILINE)
+
+
+def _is_section_anchor(para: str) -> bool:
+    """A paragraph is a section anchor iff it contains BOTH a numbered section
+    pattern AND a divider line. This filters out numbered list items inside
+    section bodies (which match the pattern but lack the decorator)."""
+    return bool(SECTION_ANCHOR_RE.search(para) and _DIVIDER_LINE_RE.search(para))
 
 _CLUSTER_PALETTE = [
     "#4f7cac", "#c97b63", "#7aa974", "#9b7aa9",
@@ -81,6 +104,7 @@ def to_interspace_json(
     grouped_per_folder = _group_by_folder_and_pattern(files, root)
 
     nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
     cluster_ids: list[str] = []
     cluster_palette_idx = 0
     cluster_map: dict[str, int] = {}
@@ -106,10 +130,39 @@ def to_interspace_json(
                 ):
                     paragraph_nodes = _paragraph_nodes(f, folder_rel, cluster_id_safe)
                     if paragraph_nodes:
+                        anchor = _doc_anchor_from_paragraphs(
+                            f, folder_rel, cluster_id_safe, len(paragraph_nodes)
+                        )
+                        nodes.append(anchor)
                         nodes.extend(paragraph_nodes)
+                        # Containment (Pi shell): anchor -> each paragraph child.
+                        for p in paragraph_nodes:
+                            edges.append({
+                                "source": anchor["id"],
+                                "target": p["id"],
+                                "kind": "contains",
+                                "weight": 1.0,
+                            })
+                        # Sequence (Pi local pointer N): paragraph[i] -> paragraph[i+1].
+                        for i in range(len(paragraph_nodes) - 1):
+                            edges.append({
+                                "source": paragraph_nodes[i]["id"],
+                                "target": paragraph_nodes[i + 1]["id"],
+                                "kind": "sequence",
+                                "weight": 1.0,
+                            })
                         continue
                 # Fallback: atomic file node
                 nodes.append(_file_node(f, folder_rel, cluster_id_safe))
+
+    # Folder hierarchy (Pi shell tier above file anchors). Emit folder anchor
+    # per distinct folder + parent→child + folder→file containment edges.
+    # Runs BEFORE cross-ref extraction so folder anchors can be ref targets.
+    _emit_folder_hierarchy(nodes, edges, cluster_ids, root.name)
+
+    # Cross-reference extraction (R1, R3, R4, R6) — second pass over nodes.
+    # Shared with any other adapter that emits text-bearing nodes.
+    edges.extend(extract_cross_references(nodes))
 
     clusters = [
         {
@@ -130,7 +183,7 @@ def to_interspace_json(
     return {
         "meta": payload_meta,
         "nodes": nodes,
-        "edges": [],
+        "edges": edges,
         "clusters": clusters,
     }
 
@@ -272,6 +325,9 @@ def _paragraph_nodes(
     paragraphs = _split_paragraphs(content)
     out: list[dict[str, Any]] = []
     for idx, para in enumerate(paragraphs):
+        # Section-head paragraphs (e.g. "6C. IRON LAW (...)") get their own kind
+        # so cross-refs of the shape "see §6B" can target them precisely.
+        kind = "section_anchor" if _is_section_anchor(para) else "paragraph"
         out.append({
             "id": f"fs.para.{safe_rel}.{idx:03d}",
             "label": _shorten(para, _LABEL_MAX),
@@ -279,7 +335,7 @@ def _paragraph_nodes(
             "tags": ["filesystem", "paragraph", _file_ext(f.name), file_stem],
             "weight": round(min(2.0, 0.6 + math.log10(max(1.0, len(para) / 200.0)) * 0.5), 2),
             "meta": {
-                "kind": "paragraph",
+                "kind": kind,
                 "source_file": rel_path,
                 "paragraph_index": idx,
                 "paragraphs_in_file": len(paragraphs),
@@ -292,11 +348,19 @@ def _paragraph_nodes(
 
 
 def _split_paragraphs(text: str) -> list[str]:
-    """Split text into paragraphs.
+    """Split text into paragraphs (one node per blank-line block).
 
-    Splits on blank lines (one or more empty lines). Filters out paragraphs
-    below _MIN_PARAGRAPH_CHARS to drop noise (single-word labels, ruler lines
-    of dashes, etc.). Strips surrounding whitespace from each.
+    Dictionary-grain design: each paragraph is its own addressable atom.
+    Dense archives (brain_candy, secret_candy, governance docs) carry
+    singular value per paragraph — a chat turn, a definition, an axiom,
+    a sticky — so we preserve that granularity rather than coalescing.
+
+    Filters: section anchors always survive (structural landmarks); chunks
+    below _MIN_PARAGRAPH_CHARS alnum count get dropped as noise (ruler
+    lines of `===` / `---`, single-word labels, blank-ish fragments).
+    Cleanup of redundant or near-duplicate paragraph nodes across files
+    is a runner-side concern (the future red runner's beat), not
+    extraction-side.
     """
     raw = re.split(r"\n\s*\n+", text)
     out = []
@@ -304,7 +368,12 @@ def _split_paragraphs(text: str) -> list[str]:
         s = chunk.strip()
         if not s:
             continue
-        # Skip if it's mostly punctuation/whitespace (ruler lines, dividers)
+        # Section-header paragraphs (e.g. "===\n6C. IRON LAW (...)\n===")
+        # often have too few alnum chars on their own; whitelist them so
+        # the anchor survives + remains a §-reference target.
+        if _is_section_anchor(s):
+            out.append(s)
+            continue
         alnum = sum(1 for c in s if c.isalnum())
         if alnum < _MIN_PARAGRAPH_CHARS:
             continue
@@ -324,17 +393,206 @@ def _file_node(f: Path, folder_rel: str, cluster_id: str) -> dict[str, Any]:
     size = f.stat().st_size
     ext = _file_ext(f.name)
     weight = min(2.0, 0.6 + math.log10(max(1.0, size / 1024.0)) * 0.4)
+    meta: dict[str, Any] = {
+        "kind": "file",
+        "path": rel_path,
+        "size_bytes": size,
+        "extension": ext,
+        "created_at": datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat(),
+    }
+    # Embed text body for non-binary atomic files under the size cap. Larger
+    # files stay anchor-only; binaries (.pdf/.docx/.zip/...) fall through via
+    # UnicodeDecodeError. Mojibake repair runs on read to fix the cp1252
+    # round-trip corruption Windows editors bake into UTF-8 files.
+    if size <= _ATOMIC_CONTENT_MAX_BYTES:
+        try:
+            text = f.read_text(encoding="utf-8-sig", errors="strict")
+            meta["content"] = try_repair_mojibake(text)
+        except (UnicodeDecodeError, OSError):
+            pass  # binary or unreadable — anchor only
     return {
         "id": f"fs.file.{_safe_id_part(rel_path)}",
         "label": f.name,
         "cluster": cluster_id,
         "tags": ["filesystem", "file"] + ([ext] if ext else []),
         "weight": round(max(0.6, weight), 2),
+        "meta": meta,
+    }
+
+
+def _folder_anchor_node(
+    folder_rel: str,
+    root_name: str,
+    child_file_count: int,
+    child_folder_count: int,
+    cluster_id: str,
+) -> dict[str, Any]:
+    """Folder-anchor node (kind='folder'). Sits one tier above file anchors:
+    the genre / super-genre Pi shell. Pulls its child file anchors and child
+    folder anchors toward itself via 'contains' edges, producing nested
+    radial structure in the lattice (Protocols ball, Docs ball, all hanging
+    off a Gov_Alignment center)."""
+    if folder_rel:
+        leaf = folder_rel.rsplit("/", 1)[-1]
+        label = f"{leaf}/"
+        safe_id = _safe_id_part(folder_rel)
+        path_display = folder_rel + "/"
+    else:
+        leaf = root_name
+        label = f"{root_name}/"
+        safe_id = "_root"
+        path_display = ""
+    weight = min(3.0, 1.2 + math.log10(max(1.0, child_file_count + child_folder_count + 1)) * 0.5)
+    return {
+        "id": f"fs.folder.{safe_id}",
+        "label": label,
+        "cluster": cluster_id,
+        "tags": ["filesystem", "folder", leaf],
+        "weight": round(weight, 2),
+        "meta": {
+            "kind": "folder",
+            "path": path_display,
+            "child_file_count": child_file_count,
+            "child_folder_count": child_folder_count,
+        },
+    }
+
+
+def _emit_folder_hierarchy(
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    cluster_ids: list[str],
+    root_name: str,
+) -> int:
+    """Post-pass: emit folder-anchor nodes + parent→child folder containment
+    + folder→file containment. Pi shell tier above file anchors.
+
+    Walks all currently-emitted file / composite nodes to collect their
+    folder paths (+ all ancestor paths), then emits one anchor per distinct
+    folder. Registers any new cluster ids (e.g. '<root>' for the top
+    anchor) into the passed cluster_ids list so they appear in the
+    clusters array. Returns the number of folder anchors added."""
+    files_by_folder: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    composites_by_folder: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for n in nodes:
+        m = n.get("meta") or {}
+        kind = m.get("kind")
+        if kind == "file":
+            path = m.get("path", "")
+            folder = path.rsplit("/", 1)[0] if "/" in path else ""
+            files_by_folder[folder].append(n)
+        elif kind == "composite":
+            folder = m.get("folder", "")
+            if folder == "/":
+                folder = ""
+            composites_by_folder[folder].append(n)
+
+    # All folder paths that ever held a child (+ their ancestors).
+    all_folders: set[str] = set()
+    for folder in list(files_by_folder.keys()) + list(composites_by_folder.keys()):
+        if not folder:
+            all_folders.add("")
+            continue
+        parts = folder.split("/")
+        for i in range(len(parts) + 1):
+            all_folders.add("/".join(parts[:i]))
+
+    # Count direct children per folder for weight/meta.
+    direct_files_per_folder: dict[str, int] = defaultdict(int)
+    for folder, fa_list in files_by_folder.items():
+        direct_files_per_folder[folder] += len(fa_list)
+    for folder, ca_list in composites_by_folder.items():
+        direct_files_per_folder[folder] += len(ca_list)
+
+    direct_child_folders_per_folder: dict[str, int] = defaultdict(int)
+    for folder in all_folders:
+        if not folder:
+            continue
+        parent = folder.rsplit("/", 1)[0] if "/" in folder else ""
+        if parent in all_folders:
+            direct_child_folders_per_folder[parent] += 1
+
+    # Cluster id for each folder: use existing _cluster_id_for convention.
+    # Register any new cluster ids (e.g. '<root>' for the top anchor) so they
+    # appear in the final clusters array — otherwise schema validation rejects.
+    known_clusters = set(cluster_ids)
+    anchor_by_path: dict[str, dict[str, Any]] = {}
+    for folder in sorted(all_folders):
+        raw_cluster = _cluster_id_for(folder, _DEFAULT_CLUSTER_DEPTH)
+        if raw_cluster not in known_clusters:
+            cluster_ids.append(raw_cluster)
+            known_clusters.add(raw_cluster)
+        cluster_id = _safe_id_part(raw_cluster)
+        anchor = _folder_anchor_node(
+            folder,
+            root_name,
+            direct_files_per_folder.get(folder, 0),
+            direct_child_folders_per_folder.get(folder, 0),
+            cluster_id,
+        )
+        anchor_by_path[folder] = anchor
+        nodes.append(anchor)
+
+    # Containment: parent folder anchor -> child folder anchor.
+    for folder in anchor_by_path:
+        if not folder:
+            continue
+        parent = folder.rsplit("/", 1)[0] if "/" in folder else ""
+        if parent in anchor_by_path:
+            edges.append({
+                "source": anchor_by_path[parent]["id"],
+                "target": anchor_by_path[folder]["id"],
+                "kind": "contains",
+                "weight": 1.0,
+            })
+
+    # Containment: folder anchor -> file / composite child.
+    for folder, fa_list in files_by_folder.items():
+        if folder in anchor_by_path:
+            for fa in fa_list:
+                edges.append({
+                    "source": anchor_by_path[folder]["id"],
+                    "target": fa["id"],
+                    "kind": "contains",
+                    "weight": 1.0,
+                })
+    for folder, ca_list in composites_by_folder.items():
+        if folder in anchor_by_path:
+            for ca in ca_list:
+                edges.append({
+                    "source": anchor_by_path[folder]["id"],
+                    "target": ca["id"],
+                    "kind": "contains",
+                    "weight": 1.0,
+                })
+
+    return len(anchor_by_path)
+
+
+def _doc_anchor_from_paragraphs(
+    f: Path, folder_rel: str, cluster_id: str, paragraph_count: int
+) -> dict[str, Any]:
+    """File-anchor node for a paragraph-split file. Same kind='file' as atomic
+    file nodes, but carries paragraph_count + a file_stem tag that visually
+    groups it with its paragraph children (which already carry that tag).
+    Container of N paragraph children via 'contains' edges (Pi shell)."""
+    rel_path = f"{folder_rel}/{f.name}" if folder_rel else f.name
+    size = f.stat().st_size
+    ext = _file_ext(f.name)
+    file_stem = f.stem
+    weight = min(2.5, 1.0 + math.log10(max(1.0, paragraph_count + 1)) * 0.4)
+    return {
+        "id": f"fs.file.{_safe_id_part(rel_path)}",
+        "label": f"{f.name} ({paragraph_count} paragraphs)",
+        "cluster": cluster_id,
+        "tags": ["filesystem", "file"] + ([ext] if ext else []) + [file_stem],
+        "weight": round(max(0.6, weight), 2),
         "meta": {
             "kind": "file",
             "path": rel_path,
             "size_bytes": size,
             "extension": ext,
+            "paragraph_count": paragraph_count,
             "created_at": datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat(),
         },
     }
@@ -427,8 +685,11 @@ def main(argv: list[str] | None = None) -> int:
     from collections import Counter as _Counter
     kinds = _Counter(n.get("meta", {}).get("kind", "file") for n in payload["nodes"])
     breakdown = ", ".join(f"{kind}: {n}" for kind, n in sorted(kinds.items()))
+    edge_kinds = _Counter(e.get("kind", "?") for e in payload["edges"])
+    edge_breakdown = ", ".join(f"{k}: {n}" for k, n in sorted(edge_kinds.items())) or "none"
     print(
         f"wrote {args.output}: {len(payload['nodes'])} nodes ({breakdown}), "
+        f"{len(payload['edges'])} edges ({edge_breakdown}), "
         f"{len(payload['clusters'])} clusters",
         file=sys.stderr,
     )

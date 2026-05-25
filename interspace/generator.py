@@ -6,12 +6,14 @@ JS/CSS asset bundle. Output layout:
 
     output_dir/
       index.html
-      lattice.html
+      lattice.html                    3D force-directed graph
       clusters/{cluster_id}.html      one per cluster
       nodes/{node_id}.html            one per node
       static/
-        js/cytoscape.min.js
-        js/lattice.js
+        js/three.min.js               3D renderer (peer dep of 3d-force-graph)
+        js/3d-force-graph.min.js      3D force-directed graph engine
+        js/lattice_3d.js              lattice init + zoom controls + nav
+        js/theme.js                   dark mode toggle
         css/style.css
 
 Templates live in `<package>/../templates/`, assets in `<package>/../static/`.
@@ -22,7 +24,7 @@ from __future__ import annotations
 import json
 import shutil
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,9 +32,6 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from .validator import validate_input
-
-
-MAX_TAG_CHIPS = 30
 
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
@@ -101,9 +100,6 @@ def render_pages(
 
     counts["pages"] += _write_index(env, output_dir, meta, nodes, edges, clusters)
     counts["pages"] += _write_lattice(
-        env, output_dir, meta, nodes, edges, clusters
-    )
-    counts["pages"] += _write_lattice_3d(
         env, output_dir, meta, nodes, edges, clusters
     )
     counts["pages"] += _write_cluster_pages(
@@ -178,6 +174,7 @@ def _write_lattice(
     edges: list[dict[str, Any]],
     clusters: list[dict[str, Any]],
 ) -> int:
+    """Render the lattice page (3D force-directed graph via 3d-force-graph)."""
     lattice_payload = {
         "nodes": [_lattice_node(n) for n in nodes],
         "edges": [
@@ -194,37 +191,19 @@ def _write_lattice(
             for c in clusters
         ],
     }
-    epoch_min_ms, epoch_max_ms = _node_epoch_range(nodes)
     # Defensive: escape any `</` so the JSON can't terminate the surrounding
     # <script type="application/json"> block.
     lattice_json = (
         json.dumps(lattice_payload, separators=(",", ":"))
         .replace("</", "<\\/")
     )
-    tag_counts = Counter(t for n in nodes for t in n["tags"])
-    # Cap chips to top-N by frequency to keep the controls bar usable at scale;
-    # the search input still matches any tag substring.
-    all_tags = [
-        t for t, _ in sorted(
-            tag_counts.most_common(MAX_TAG_CHIPS),
-            key=lambda kv: (-kv[1], kv[0]),
-        )
-    ]
-    archived_count = sum(1 for n in nodes if n.get("archived"))
     html = env.get_template("lattice.html").render(
         asset_prefix="",
         meta=meta,
         nodes=nodes,
         edges=edges,
         clusters=clusters,
-        all_tags=all_tags,
         lattice_data_json=lattice_json,
-        epoch_min_ms=epoch_min_ms,
-        epoch_max_ms=epoch_max_ms,
-        epoch_min_iso=_ms_to_date_str(epoch_min_ms),
-        epoch_max_iso=_ms_to_date_str(epoch_max_ms),
-        has_archived=archived_count > 0,
-        archived_count=archived_count,
     )
     (output_dir / "lattice.html").write_text(html, encoding="utf-8")
     return 1
@@ -251,28 +230,6 @@ def _lattice_node(n: dict[str, Any]) -> dict[str, Any]:
     # Document anchor (Pi-style middle layer between cluster and atom).
     # For filesystem_tree paragraph nodes, group by source_file so cose can
     # apply nested compound containment.
-    meta = n.get("meta") or {}
-    if meta.get("kind") == "paragraph" and meta.get("source_file"):
-        out["document"] = meta["source_file"]
-    return out
-
-
-def _cluster_lattice_node(n: dict[str, Any]) -> dict[str, Any]:
-    out: dict[str, Any] = {
-        "id": n["id"],
-        "label": n["label"],
-        "weight": n["weight"],
-    }
-    ts = _node_created_ms(n)
-    if ts is not None:
-        out["ts"] = ts
-    if n.get("archived"):
-        out["archived"] = True
-        if n.get("archived_at"):
-            out["archived_at"] = n["archived_at"]
-    phase = n.get("phase")
-    if phase and phase != "current":
-        out["phase"] = phase
     meta = n.get("meta") or {}
     if meta.get("kind") == "paragraph" and meta.get("source_file"):
         out["document"] = meta["source_file"]
@@ -320,47 +277,6 @@ def _ms_to_date_str(ms: int | None) -> str | None:
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
 
 
-def _write_lattice_3d(
-    env: Environment,
-    output_dir: Path,
-    meta: dict[str, Any],
-    nodes: list[dict[str, Any]],
-    edges: list[dict[str, Any]],
-    clusters: list[dict[str, Any]],
-) -> int:
-    """Render the 3D-view companion to lattice.html (3d-force-graph prototype)."""
-    lattice_payload = {
-        "nodes": [_lattice_node(n) for n in nodes],
-        "edges": [
-            {
-                "source": e["source"],
-                "target": e["target"],
-                "kind": e["kind"],
-                "weight": e["weight"],
-            }
-            for e in edges
-        ],
-        "clusters": [
-            {"id": c["id"], "label": c["label"], "color": c.get("color")}
-            for c in clusters
-        ],
-    }
-    lattice_json = (
-        json.dumps(lattice_payload, separators=(",", ":"))
-        .replace("</", "<\\/")
-    )
-    html = env.get_template("lattice_3d.html").render(
-        asset_prefix="",
-        meta=meta,
-        nodes=nodes,
-        edges=edges,
-        clusters=clusters,
-        lattice_data_json=lattice_json,
-    )
-    (output_dir / "lattice_3d.html").write_text(html, encoding="utf-8")
-    return 1
-
-
 def _write_cluster_pages(
     env: Environment,
     output_dir: Path,
@@ -398,27 +314,6 @@ def _write_cluster_pages(
             elif src_cluster == cid or tgt_cluster == cid:
                 cross_edges.append(enriched)
 
-        cluster_lattice_payload = {
-            "cluster_id": cid,
-            "cluster_color": cluster.get("color"),
-            "nodes": [_cluster_lattice_node(n) for n in cluster_nodes],
-            "edges": [
-                {
-                    "source": e["source"],
-                    "target": e["target"],
-                    "kind": e["kind"],
-                    "weight": e["weight"],
-                }
-                for e in intra_edges
-            ],
-        }
-        cluster_lattice_json = (
-            json.dumps(cluster_lattice_payload, separators=(",", ":"))
-            .replace("</", "<\\/")
-        )
-
-        cluster_epoch_min_ms, cluster_epoch_max_ms = _node_epoch_range(cluster_nodes)
-
         html = template.render(
             asset_prefix="../",
             meta=meta,
@@ -429,11 +324,6 @@ def _write_cluster_pages(
             cluster_nodes=cluster_nodes,
             intra_edges=intra_edges,
             cross_edges=cross_edges,
-            cluster_lattice_data_json=cluster_lattice_json,
-            cluster_epoch_min_ms=cluster_epoch_min_ms,
-            cluster_epoch_max_ms=cluster_epoch_max_ms,
-            cluster_epoch_min_iso=_ms_to_date_str(cluster_epoch_min_ms),
-            cluster_epoch_max_iso=_ms_to_date_str(cluster_epoch_max_ms),
         )
         (cluster_dir / f"{cid}.html").write_text(html, encoding="utf-8")
         written += 1
@@ -444,14 +334,15 @@ def _write_cluster_pages(
 def _compute_document_paragraphs(
     nodes: list[dict[str, Any]],
 ) -> dict[str, list[dict[str, Any]]]:
-    """For each paragraph node, return the ordered list of all paragraph
-    siblings from the same `meta.source_file`. Empty for non-paragraph nodes
-    or nodes without a source_file.
+    """For each paragraph / section_anchor node AND its file-anchor parent,
+    return the ordered list of all paragraphs from the same `meta.source_file`.
+    File anchors map by `meta.path == source_file`. Empty for nodes not
+    associated with a paragraph-split source file.
     """
     by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for n in nodes:
         m = n.get("meta") or {}
-        if m.get("kind") == "paragraph" and m.get("source_file"):
+        if m.get("kind") in ("paragraph", "section_anchor") and m.get("source_file"):
             by_source[str(m["source_file"])].append(n)
 
     for paras in by_source.values():
@@ -463,6 +354,16 @@ def _compute_document_paragraphs(
     for paras in by_source.values():
         for n in paras:
             result[n["id"]] = paras
+
+    # File-anchor nodes map to their contained paragraphs by path == source_file.
+    # Clicking a file anchor (e.g., from a `full_doctrine_of` edge) then shows
+    # the full source body scrollable, same as a paragraph node would.
+    for n in nodes:
+        m = n.get("meta") or {}
+        if m.get("kind") == "file" and m.get("path"):
+            paras = by_source.get(str(m["path"]))
+            if paras:
+                result[n["id"]] = paras
     return result
 
 

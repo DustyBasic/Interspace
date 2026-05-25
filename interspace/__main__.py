@@ -95,6 +95,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Don't auto-launch the default browser.",
     )
     serve.set_defaults(open_browser=True)
+    serve.add_argument(
+        "--live",
+        action="store_true",
+        help=(
+            "Mount the live discovery layer: 3 background runners scan the "
+            "lattice for new cross-source relations and broadcast discoveries "
+            "via SSE at /api/runners/stream. Lattice page animates each new "
+            "edge as a runner-colored visual event."
+        ),
+    )
 
     return p
 
@@ -158,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
             port=args.port,
             host=args.host,
             open_browser=args.open_browser,
+            live=args.live,
         )
 
     parser.print_help()

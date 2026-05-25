@@ -67,11 +67,15 @@
 
 
 
+
+
       <section class="node__adapter-meta">
-        <h2>Adapter metadata</h2>
-        <pre class="adapter-meta">{
+        <details>
+          <summary>Adapter metadata (raw JSON)</summary>
+          <pre class="adapter-meta">{
   "created_at": "2026-05-01T00:00:00Z"
 }</pre>
+        </details>
       </section>
 
     <section class="node__edges">
@@ -107,5 +111,13 @@ from <code>hand-authored@0.1</code>&middot; <time datetime="2026-05-23">2026-05-
   </footer>
 
   <script src="../static/js/theme.js"></script>
+<script>
+  (function () {
+    var cur = document.getElementById('current-para');
+    if (cur && cur.scrollIntoView) {
+      cur.scrollIntoView({ block: 'center' });
+    }
+  })();
+</script>
 </body>
 </html>

@@ -1,18 +1,26 @@
 """Local HTTP server for serving a rendered Interspace directory.
 
-Uses only stdlib (`http.server`, `socketserver`, `webbrowser`). Designed to
-be invoked via `python -m interspace serve <dir>`; see `__main__.py` for the
-CLI wiring.
+Uses only stdlib (`http.server`, `socketserver`, `webbrowser`, `threading`).
+Designed to be invoked via `python -m interspace serve <dir>`; see
+`__main__.py` for the CLI wiring.
+
+The `--live` flag mounts a live discovery layer: three lightweight runners
+(T-cell, REL, NEG-T at Interspace weights) cycle in background threads,
+scan the rendered lattice for new cross-source relations, and broadcast
+discoveries via Server-Sent Events at `/api/runners/stream`. The lattice
+page subscribes and animates each new edge as a runner-colored visual
+event. Aesthetic + suggestion layer; persistence is operator-opt-in.
 """
 
 from __future__ import annotations
 
 import functools
 import http.server
-import socketserver
 import sys
 import webbrowser
 from pathlib import Path
+
+from .live_runner import LiveRunnerState, stream_events
 
 
 def run_server(
@@ -20,8 +28,12 @@ def run_server(
     port: int = 8000,
     open_browser: bool = True,
     host: str = "127.0.0.1",
+    live: bool = False,
 ) -> int:
     """Serve `directory` over HTTP on `host:port` until Ctrl-C.
+
+    When `live=True`, mount the live runner subsystem: 3 background runner
+    threads + SSE endpoint at /api/runners/stream.
 
     Returns 0 on clean shutdown, 2 if the directory is missing or not a dir,
     4 if the port is already in use.
@@ -33,14 +45,25 @@ def run_server(
         print(f"error: not a directory: {directory}", file=sys.stderr)
         return 2
 
+    runner_state: LiveRunnerState | None = None
+    if live:
+        runner_state = LiveRunnerState(directory)
+        # Force initial lattice load + edge-set seed so first cycle diffs cleanly
+        runner_state.lattice()
+        runner_state.start()
+
     handler = functools.partial(
-        http.server.SimpleHTTPRequestHandler, directory=str(directory)
+        _InterspaceRequestHandler,
+        directory=str(directory),
+        runner_state=runner_state,
     )
 
     try:
-        with socketserver.TCPServer((host, port), handler) as httpd:
+        with http.server.ThreadingHTTPServer((host, port), handler) as httpd:
             url = f"http://{host}:{port}/"
             print(f"serving {directory} at {url}", file=sys.stderr)
+            if live:
+                print("live runner: ON (3 runners — t-cell, rel, neg-t)", file=sys.stderr)
             print("press Ctrl-C to stop.", file=sys.stderr)
             if open_browser:
                 webbrowser.open(url)
@@ -48,6 +71,8 @@ def run_server(
                 httpd.serve_forever()
             except KeyboardInterrupt:
                 print("\nstopped", file=sys.stderr)
+                if runner_state is not None:
+                    runner_state.stop()
                 return 0
     except OSError as e:
         # EADDRINUSE: 98 on Linux, 10048 on Windows
@@ -60,3 +85,50 @@ def run_server(
             return 4
         raise
     return 0
+
+
+class _InterspaceRequestHandler(http.server.SimpleHTTPRequestHandler):
+    """Static file server + SSE endpoint for the live runner."""
+
+    def __init__(self, *args, runner_state: LiveRunnerState | None = None, **kwargs):
+        self._runner_state = runner_state
+        # SimpleHTTPRequestHandler accepts `directory=...` kwarg
+        super().__init__(*args, **kwargs)
+
+    def do_GET(self) -> None:  # noqa: N802 — stdlib API
+        if self.path == "/api/runners/stream":
+            if self._runner_state is None:
+                self.send_error(404, "Live runner not enabled (start server with --live)")
+                return
+            self._handle_sse()
+            return
+        super().do_GET()
+
+    def _handle_sse(self) -> None:
+        assert self._runner_state is not None
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
+        q = self._runner_state.register_client()
+        try:
+            for chunk in stream_events(q, stop_check=lambda: False):
+                try:
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                    break
+        finally:
+            self._runner_state.unregister_client(q)
+
+    def log_message(self, format: str, *args) -> None:  # noqa: A002 — stdlib API
+        # Quieter logging: skip SSE heartbeat noise but keep regular requests.
+        if "/api/runners/stream" in (args[0] if args else ""):
+            return
+        super().log_message(format, *args)

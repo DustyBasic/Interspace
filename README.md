@@ -20,17 +20,16 @@ doesn't query it, it **renders** it as something a human can navigate.
 
 ## v0.1 features
 
-- **Force-directed lattice** of every node and edge (Cytoscape.js, cose layout)
+- **Force-directed 3D lattice** of every node and edge, rendered via vendored
+  Three.js + 3d-force-graph (~1.8MB JS, SHA256-pinned). Drag to rotate,
+  scroll to zoom, right-click + drag to pan, click any sphere to open its
+  detail page. Scales cleanly to ~1000+ nodes where 2D cose layout
+  collapses
 - **Per-cluster pages** with intra-cluster and cross-cluster edge listings
-  plus a scoped mini-lattice
-- **Per-node pages** showing incoming/outgoing edges, tags, weight, adapter
-  metadata
-- **Live filters** on the lattice page: text search (label / id / tag),
-  tag chips (top-30 by frequency), color-by toggle (cluster or tag),
-  time slider over `created_at`
-- **Shared time cutoff** across main lattice and cluster mini-lattices
-  (sessionStorage; per-tab) so a slider move on one page carries to others
-- **Zoom controls** (in / out / fit-to-view) overlaid on every lattice canvas
+- **Per-node pages** showing incoming/outgoing edges (with quoted citation
+  context where the adapter emitted it), tags, weight, source-document
+  context (full doc scrollable, current paragraph centered), linked
+  continuations (cross-doc jumps via strong edges), adapter metadata
 - **Archive-aware adapter mode** — adapters that accept `--archive
   <previous.json>` merge previously-known nodes that have disappeared from
   the source, marking them `archived` (rendered at 0.4 opacity, dashed
@@ -40,13 +39,15 @@ doesn't query it, it **renders** it as something a human can navigate.
 - **Local server + auto-open** via `python -m interspace serve <dir>` —
   stdlib-only HTTP server with optional browser launch, for quick previews
   without spinning up a separate `http.server` invocation
-- **3D lattice view** — alongside the 2D `lattice.html`, every render also
-  emits `lattice_3d.html`: a force-directed 3D rendering via vendored
-  Three.js + 3d-force-graph (~1.8MB JS, SHA256-pinned). Drag to rotate,
-  scroll to zoom, click any sphere to open its detail page. Same data as
-  the 2D view, different rendering primitive. Useful when 2D cluster
-  density becomes illegible — connected components surface as
-  constellations in 3D space
+- **Live discovery layer** (`--live` flag on `serve`) — three lightweight
+  in-server runners (T-cell / REL / NEG-T at Interspace weights, not Pi
+  spec depth) scan the rendered lattice for new cross-source relations on
+  a periodic cycle and broadcast discoveries via Server-Sent Events. The
+  lattice page subscribes and animates each new edge as a runner-colored
+  visual event — the constellation reshuffles in front of the operator as
+  the substrate accretes. Visual clock (jittered 1-3s per runner) runs
+  client-side independent of the server discovery cycle, so the lattice
+  always feels alive between actual discoveries
 - **Auto-validation** of input JSON against the schema; all errors collected
   and reported together
 - **Pluggable input adapters** — write `to_interspace_json(source) -> dict`,
@@ -83,19 +84,14 @@ Interspace JSON  ({meta, nodes, edges, clusters} — see docs/INPUT_SCHEMA.md)
        ▼
 rendered HTML pages
    ├── index.html                  ← clusters + node list
-   ├── lattice.html                ← 2D force-directed view, filters
-   ├── lattice_3d.html             ← 3D force-directed view (Three.js)
-   ├── clusters/<cluster_id>.html  ← per cluster (with 2D mini-lattice)
+   ├── lattice.html                ← 3D force-directed view
+   ├── clusters/<cluster_id>.html  ← per cluster (node list + intra/cross edges)
    ├── nodes/<node_id>.html        ← per node
    └── static/                     ← vendored JS, CSS
-       ├── js/cytoscape.min.js     ← 2D renderer
-       ├── js/cytoscape.version.txt
        ├── js/three.min.js         ← 3D renderer (peer dep)
        ├── js/3d-force-graph.min.js
        ├── js/3d-force-graph.version.txt
-       ├── js/lattice.js           ← 2D init + filters + zoom
-       ├── js/lattice_3d.js        ← 3D init + zoom controls
-       ├── js/cluster_lattice.js
+       ├── js/lattice_3d.js        ← lattice init + zoom controls + nav
        ├── js/theme.js             ← dark mode toggle
        └── css/style.css
 ```
@@ -112,9 +108,9 @@ rendered HTML pages
 One reference render ships with the repo:
 
 - `samples/example.json` + `samples/rendered_example/` — minimal synthetic
-  input exercising every schema field (6 nodes, 4 clusters, all filter
-  controls). Use this to learn the schema or as a regression-check that the
-  renderer still produces clean output.
+  input exercising every schema field (6 nodes, 4 clusters). Use this to
+  learn the schema or as a regression-check that the renderer still
+  produces clean output.
 
 Open it locally:
 
@@ -185,8 +181,8 @@ contract that adapters must implement to support this mode.
 
 - **Static-first.** Output is plain HTML. Works offline. Version-controllable.
 - **Stdlib-friendly.** Python 3.11+ with `jinja2` as the only required dep.
-- **Vendored JS.** Cytoscape.js bundled at a pinned version with a SHA256 in
-  `static/js/cytoscape.version.txt`. Never re-fetched silently.
+- **Vendored JS.** Three.js + 3d-force-graph bundled at pinned versions with
+  SHA256 in `static/js/3d-force-graph.version.txt`. Never re-fetched silently.
 - **Compose, don't own.** Interspace doesn't replace your storage, query
   layer, or note-taking. It adds the visualization leg.
 - **Minimal bundled adapters.** The `interspace/adapters/` package ships
@@ -197,20 +193,18 @@ contract that adapters must implement to support this mode.
 ## Status
 
 **v0.1 — shipped.** Renderer, schema, validator, adapter contract +
-archive-aware mode, hand-curated input pattern, search / tag / time filters
-with shared cutoff across pages, zoom controls, mini-lattices. One synthetic
-reference sample (`example.json`) committed.
+archive-aware mode, hand-curated input pattern. One synthetic reference
+sample (`example.json`) committed.
+
+**v0.4 — 3D lattice is the canonical view.** Vendored Three.js +
+3d-force-graph. Force-directed 3D with rotate / zoom / pan /
+click-to-navigate. Scales to ~1000+ nodes where 2D cose layout collapsed;
+the prior 2D Cytoscape renderer was removed.
 
 **v0.2 — likely next:** `markdown_corpus` adapter (one node per `.md`
-file, edges from link references, frontmatter → tags); finer time bucketing
-on the slider (auto-adapt step to range); multi-tag composition toggle (AND
-vs OR); search highlighting on the canvas; node detail pages showing
-inbound/outbound *edge kinds* grouped semantically; per-dataset archive view
-(dedicated filtered page).
-
-**v0.4 — 3D prototype shipped.** `lattice_3d.html` companion to the 2D
-view, vendored Three.js + 3d-force-graph. Force-directed 3D with rotate /
-zoom / pan / click-to-navigate. Same data feeds both views.
+file, edges from link references, frontmatter → tags); per-dataset
+archive view (dedicated filtered page); node detail pages showing
+inbound/outbound *edge kinds* grouped semantically.
 
 **v0.5 — spatial-hierarchy navigation (planned).** Extend the 3D view so
 camera zoom level traverses container hierarchy: zooming into a cluster's
