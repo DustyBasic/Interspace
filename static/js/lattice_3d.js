@@ -64,10 +64,17 @@
   var RES_MEDIUM_THRESHOLD = 4500;  // beyond this: + files / composites / section_anchors / hand-curated concept nodes
                                     // closer than this: everything visible
 
-  // Atom-class node kinds — hidden at far/medium zoom
+  // Atom-class node kinds — hidden at far/medium zoom (only at closest)
   var ATOM_KINDS = { paragraph: 1, finding: 1, observation: 1 };
-  // Mid-class node kinds — visible at medium zoom
-  var MID_KINDS = { file: 1, composite: 1, section_anchor: 1, directory: 1 };
+  // Mid-class node kinds — visible at medium zoom. `conversation_segment`
+  // included so scene-anchors stay visible when you zoom out past
+  // individual-turn detail. Segments are the navigable unit for chat-heavy
+  // archives; without them at medium zoom the structural view loses
+  // its scene/exchange landmarks the moment atoms hide.
+  var MID_KINDS = {
+    file: 1, composite: 1, section_anchor: 1,
+    directory: 1, conversation_segment: 1
+  };
 
   function readData() {
     var el = document.getElementById("lattice-data");
