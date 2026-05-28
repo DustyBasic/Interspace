@@ -11,6 +11,23 @@
         <strong>{{ node.label }}</strong>
       </p>
       <h1>{{ node.label }}</h1>
+      {% set m = node.meta or {} %}
+      {% if m.kind or m.content_type or m.file_type or m.conversation_segment_id %}
+        <div class="node__badges">
+          {% if m.kind %}
+            <span class="badge badge--kind">{{ m.kind | replace('_', ' ') }}</span>
+          {% endif %}
+          {% if m.content_type and m.content_type != m.kind %}
+            <span class="badge badge--content-type" data-content-type="{{ m.content_type }}">{{ m.content_type | replace('_', ' ') }}</span>
+          {% endif %}
+          {% if m.file_type %}
+            <span class="badge badge--file-type" data-file-type="{{ m.file_type }}">{{ m.file_type | replace('_', ' ') }}</span>
+          {% endif %}
+          {% if m.conversation_segment_id %}
+            <span class="badge badge--segment" title="Conversation segment {{ m.conversation_segment_id }}">in segment</span>
+          {% endif %}
+        </div>
+      {% endif %}
       <p class="node__id"><code>{{ node.id }}</code></p>
     </header>
 
@@ -88,12 +105,18 @@
         <div class="node__document-paragraphs">
           {% for para in document_paragraphs %}
             {% if para.id == node.id %}
-              <div class="node__doc-para node__doc-para--current" id="current-para">
+              <div class="node__doc-para node__doc-para--current"
+                   id="current-para"
+                   {% if para.meta.conversation_segment_id %}data-segment="{{ para.meta.conversation_segment_id }}"{% endif %}
+                   {% if para.meta.content_type %}data-content-type="{{ para.meta.content_type }}"{% endif %}>
                 <span class="node__doc-para-index">{{ para.meta.paragraph_index + 1 }}</span>
                 <pre class="node__doc-para-content">{{ para.meta.content }}</pre>
               </div>
             {% else %}
-              <a href="{{ asset_prefix }}nodes/{{ para.id }}.html" class="node__doc-para node__doc-para--sibling">
+              <a href="{{ asset_prefix }}nodes/{{ para.id }}.html"
+                 class="node__doc-para node__doc-para--sibling"
+                 {% if para.meta.conversation_segment_id %}data-segment="{{ para.meta.conversation_segment_id }}"{% endif %}
+                 {% if para.meta.content_type %}data-content-type="{{ para.meta.content_type }}"{% endif %}>
                 <span class="node__doc-para-index">{{ para.meta.paragraph_index + 1 }}</span>
                 <pre class="node__doc-para-content">{{ para.meta.content }}</pre>
               </a>

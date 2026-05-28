@@ -50,9 +50,26 @@
       <p class="lattice__hint">
         Drag to rotate &middot; scroll to zoom &middot; right-click + drag to pan &middot; click a node to open its page.
       </p>
-      <p class="lattice__status-line">
+      <div class="lattice__toolbar">
+        <label class="lattice__search">
+          <span class="lattice__search-icon" aria-hidden="true">&#9906;</span>
+          <input id="lattice-search" type="search"
+                 placeholder="Search labels, tags, clusters&hellip;"
+                 autocomplete="off" spellcheck="false" />
+          <span id="lattice-search-count" class="lattice__search-count" aria-live="polite"></span>
+        </label>
+        <label class="lattice__layout">
+          <span class="lattice__layout-label">Shape</span>
+          <select id="lattice-layout" class="lattice__layout-select">
+            <option value="globe">Globe</option>
+            <option value="galaxy">Galaxy (spiral arms)</option>
+            <option value="tree">Tree of life</option>
+            <option value="brain">Brain (4-lobe &times; 2)</option>
+            <option value="flower">Tigerlily / orchid</option>
+          </select>
+        </label>
         <span id="lattice-runner-status" class="lattice__status" data-state="connecting">connecting&hellip;</span>
-      </p>
+      </div>
     </header>
 
     <div class="lattice-wrap">

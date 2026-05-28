@@ -243,6 +243,63 @@ code, pre { font-family: var(--font-mono); font-size: 0.9em; }
   line-height: 1.4;
 }
 
+/* ---------- node-page badges ---------- */
+/* Small chips next to the node title — kind / content_type / file_type /
+   segment-membership. Content-type colors rhyme with lattice_3d runner
+   palette: cyan=chat (T-cell), gold=formal/doctrinal (REL), indigo=code
+   (NEG-T) so badge color recalls live-discovery domain. */
+.node__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.4rem 0 0.75rem;
+}
+.badge {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  border-radius: 3px;
+  background: var(--color-tag-bg);
+  color: var(--color-muted);
+  border: 1px solid transparent;
+}
+.badge--kind {
+  text-transform: lowercase;
+  background: transparent;
+  border-color: var(--color-border);
+}
+.badge--content-type[data-content-type="chat_turn"] {
+  background: rgba(125, 227, 240, 0.15);
+  color: #5db8c4;
+}
+.badge--content-type[data-content-type="formal_doctrine"] {
+  background: rgba(232, 200, 115, 0.15);
+  color: #b89a5a;
+}
+.badge--content-type[data-content-type="code_block"] {
+  background: rgba(157, 139, 239, 0.15);
+  color: #7e6dc9;
+}
+.badge--content-type[data-content-type="sequence_step"],
+.badge--content-type[data-content-type="dictionary_entry"],
+.badge--content-type[data-content-type="section_header"] {
+  background: var(--color-tag-bg);
+  color: var(--color-text);
+  font-weight: 600;
+}
+.badge--file-type {
+  background: transparent;
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.badge--segment {
+  background: rgba(125, 227, 240, 0.08);
+  color: var(--color-muted);
+  border-color: rgba(125, 227, 240, 0.3);
+}
+
 /* ---------- lattice page ---------- */
 
 .lattice__header { margin-bottom: 1rem; }
@@ -457,6 +514,29 @@ code, pre { font-family: var(--font-mono); font-size: 0.9em; }
   color: var(--color-muted);
   font-family: var(--font-mono);
 }
+.hub-card__actions {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0.55rem 1.1rem 0.85rem;
+  border-top: 1px solid var(--color-border);
+}
+.hub-card__action {
+  display: inline-block;
+  padding: 0.22rem 0.7rem;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  letter-spacing: 0.1em;
+  color: var(--color-muted);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  text-decoration: none;
+  transition: color 80ms ease, border-color 80ms ease;
+}
+.hub-card__action:hover {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
 
 .lattice__control--time { flex: 1 1 280px; }
 .lattice__control--time input[type="range"] {
@@ -657,6 +737,26 @@ code, pre { font-family: var(--font-mono); font-size: 0.9em; }
   border-left: 3px solid var(--color-accent);
   padding-left: calc(0.75rem - 3px);
 }
+
+/* Segment-aware paragraph grouping — chat_turn paragraphs in the same
+   conversation_segment get a shared left-border accent so the segment
+   reads as one unit. Cyan to rhyme with the T-cell runner palette
+   (chat = T-cell domain). Current-paragraph border wins. */
+.node__doc-para[data-segment] {
+  border-left: 2px solid rgba(125, 227, 240, 0.35);
+  padding-left: calc(0.75rem - 2px);
+}
+.node__doc-para--current[data-segment] {
+  border-left: 3px solid var(--color-accent);
+  padding-left: calc(0.75rem - 3px);
+}
+.node__doc-para[data-content-type="chat_turn"] .node__doc-para-index {
+  color: rgba(125, 227, 240, 0.7);
+}
+.node__doc-para[data-content-type="code_block"] .node__doc-para-content {
+  color: var(--color-text);
+  background: rgba(157, 139, 239, 0.06);
+}
 .node__doc-para-index {
   font-family: var(--font-mono);
   font-size: 0.72rem;
@@ -838,6 +938,93 @@ code, pre { font-family: var(--font-mono); font-size: 0.9em; }
 }
 .lattice__status[data-state="live"]::before { color: #7de3f0; }
 .lattice__status[data-state="offline"]::before { color: #6b6862; }
+
+/* ---------- lattice toolbar + search ---------- */
+/* Sits between the hint line and the canvas. Search highlights matching
+   nodes (label / tag / cluster substring) and dims the rest — operator
+   types, matches glow via size-bump + retained color while everything
+   else fades. */
+.lattice__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin: 0.5rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--color-muted);
+}
+.lattice__search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 1 1 280px;
+  max-width: 480px;
+  padding: 0.3rem 0.65rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  transition: border-color 100ms ease;
+}
+.lattice__search:focus-within {
+  border-color: var(--color-accent);
+}
+.lattice__search-icon {
+  color: var(--color-muted);
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.lattice__search input[type="search"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  padding: 0.05rem 0;
+  color: var(--color-text);
+  font: inherit;
+}
+.lattice__search input[type="search"]::placeholder {
+  color: var(--color-muted);
+  opacity: 0.75;
+}
+.lattice__search-count {
+  font-size: 0.7rem;
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+.lattice__layout {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.55rem 0.25rem 0.65rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+.lattice__layout:focus-within {
+  border-color: var(--color-accent);
+}
+.lattice__layout-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.lattice__layout-select {
+  background: transparent;
+  color: var(--color-text);
+  border: 0;
+  outline: none;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.05rem 0.15rem;
+  cursor: pointer;
+}
+.lattice__layout-select option {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
 
 /* ---------- linked continuations (Pi macro-pointer follow nav) ---------- */
 

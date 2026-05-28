@@ -28,9 +28,10 @@
 
   // Runner palette — shades of white core, accent on the halo/fringe
   var RUNNER_PALETTE = {
-    "t-cell": { accent: "#7de3f0" }, // cyan
-    "rel":    { accent: "#e8c873" }, // gold
-    "neg-t":  { accent: "#9d8bef" }  // indigo
+    "t-cell": { accent: "#7de3f0" }, // cyan  — cross-source pairwise mentions
+    "rel":    { accent: "#e8c873" }, // gold  — relational binding (temporal variants)
+    "neg-t":  { accent: "#9d8bef" }, // indigo — inverse correlation (v2)
+    "red":    { accent: "#e8736b" }  // red   — repair / near-duplicate detection
   };
 
   // Globe travel cadence — slow + contemplative. Each hop is a 3-phase
@@ -42,6 +43,12 @@
   var PAUSE_MAX_MS = 9000;    // settle at destination (max) — total cycle 4-12s
   var BRIDGE_PAUSE_MS = 800;  // shorter pause after a fresh-edge bridge fire
 
+  // Pause-on-interaction: runner state machine freezes when the operator is
+  // actively rotating/zooming/panning the camera or hovering a node. Resumes
+  // RUNNER_RESUME_DELAY_MS after last interaction. Lets the operator inspect
+  // a frozen scene without ball-lightning motion distracting.
+  var RUNNER_RESUME_DELAY_MS = 3000;
+
   // Pulse durations on new-edge events (the edge itself + its endpoints)
   var EDGE_PULSE_MS = 1800;
   var EDGE_ENDPOINT_PULSE_MS = 2400;
@@ -51,29 +58,41 @@
   var MOTION_DURATION_MS = 60_000;
   var MOTION_ALPHA_TARGET = 0.12;
 
-  // Zoom-driven resolution gates. Camera distance from origin determines
-  // which node kinds are visible — distant zoom hides atom-level detail
-  // (paragraphs / findings / observations) and reveals only structural
-  // anchors (folders, files). Zooming in unmasks finer granularity.
-  // Spatial-hierarchy navigation per the pin's v0.5 direction.
+  // Four-tier zoom-driven resolution gates. Camera distance from origin
+  // determines which node kinds are visible:
+  //   level 0 (> RES_FAR_THRESHOLD):          folders only
+  //   level 1 (> RES_MEDIUM_FAR_THRESHOLD):   + files
+  //   level 2 (> RES_MEDIUM_THRESHOLD):       + composites / section_anchors
+  //                                             / conversation_segments / null
+  //                                             (hand-curated concept nodes)
+  //   level 3 (closer):                       + atoms (paragraphs / findings
+  //                                             / observations / chat_turns)
   //
-  // Thresholds are deliberately generous so typical "browsing" zooms stay
-  // at full detail; gates only kick in when the operator intentionally
-  // zooms out to see the whole structure.
-  var RES_FAR_THRESHOLD = 10000;    // beyond this: folders only
-  var RES_MEDIUM_THRESHOLD = 4500;  // beyond this: + files / composites / section_anchors / hand-curated concept nodes
-                                    // closer than this: everything visible
+  // Splitting files from mid-kinds gives a true medium-far view: the
+  // document scaffold becomes visible before per-section noise. Operator
+  // picks which file/region to enter before atoms come into view.
+  // Spatial-hierarchy navigation per the pin's v0.5 direction.
+  // Thresholds calibrated for Memory-scale data (~36K nodes spread over
+  // ~10k-unit radius from origin after force layout). Testbench data
+  // (~2K nodes) lands well inside level 3 at default zoom, which is fine.
+  var RES_FAR_THRESHOLD = 30000;        // > this: level 0 (folders only)
+  var RES_MEDIUM_FAR_THRESHOLD = 15000; // > this: level 1 (+ files)
+  var RES_MEDIUM_THRESHOLD = 7000;      // > this: level 2 (+ mid kinds)
+                                        // closer: level 3 (+ atoms, all)
 
-  // Atom-class node kinds — hidden at far/medium zoom (only at closest)
-  var ATOM_KINDS = { paragraph: 1, finding: 1, observation: 1 };
-  // Mid-class node kinds — visible at medium zoom. `conversation_segment`
-  // included so scene-anchors stay visible when you zoom out past
-  // individual-turn detail. Segments are the navigable unit for chat-heavy
-  // archives; without them at medium zoom the structural view loses
-  // its scene/exchange landmarks the moment atoms hide.
+  var FOLDER_KINDS = { folder: 1, directory: 1 };
+  var FILE_KINDS = { file: 1 };
+  // Mid-class node kinds — visible at level 2+. Concept-grade nodes
+  // (finding / observation / section_anchor / composite), segment
+  // anchors, and post-merge `page` consolidations live here so they
+  // stay visible when you zoom past atom detail. Hand-curated null-kind
+  // nodes also surface at level 2+ (handled in nodeEffectiveAlpha via
+  // the `kind === null` branch in kindFadeThreshold).
+  // (Note: `page` consolidation is subtractive — fragments are removed
+  // and their content absorbed into the page node directly.)
   var MID_KINDS = {
-    file: 1, composite: 1, section_anchor: 1,
-    directory: 1, conversation_segment: 1
+    composite: 1, section_anchor: 1, conversation_segment: 1,
+    finding: 1, observation: 1, page: 1, document_section: 1
   };
 
   function readData() {
@@ -179,6 +198,31 @@
     var nodes = structuralNodes;
     var links = linksForLoadedNodes(nodeIdSet);
 
+    // ----------------------------------------------------------------
+    // Search state: highlight labels/tags/clusters that match the input,
+    // dim everything else. Match → full color + size bump (glow via val).
+    // No-match → desaturated gray, ~12% opacity. Empty term restores
+    // normal rendering. Pre-built haystack per node to keep keystroke
+    // filtering O(n) instead of O(n × strchk).
+    // ----------------------------------------------------------------
+    var searchMatchSet = null;  // null = inactive; Set<id> when filtering
+    var SEARCH_DIM_RGBA = "rgba(70, 72, 80, 0.15)";
+    var clusterLabelById = {};
+    (data.clusters || []).forEach(function (c) {
+      clusterLabelById[c.id] = (c.label || c.id || "").toLowerCase();
+    });
+    var searchIndex = allNodes.map(function (n) {
+      var clusterLabel = clusterLabelById[n.cluster] || (n.cluster || "");
+      return {
+        id: n.id,
+        hay: (
+          (n.label || "") + " " +
+          (n.tags || []).join(" ") + " " +
+          clusterLabel
+        ).toLowerCase()
+      };
+    });
+
     // Endpoint glow (TRANSIENT only — used for new-edge pulses, not for
     // runner presence). Runners themselves are Three.js globe meshes.
     var nodeGlow = Object.create(null);
@@ -191,28 +235,30 @@
       return s + "|" + t + "|" + (e.kind || "related");
     }
 
-    // Resolution gate state must be declared BEFORE graph constructor —
-    // nodeVisibility/linkVisibility callbacks reference these at evaluation
-    // time, and var declarations are hoisted (so the symbol exists) but the
-    // assignment is not (so it'd read undefined → undefined>=2 is false →
-    // everything except folders gets filtered on first render).
-    var currentResLevel = 2;  // start fully visible until camera moves
-    function resolutionLevelFromDistance(d) {
-      if (d > RES_FAR_THRESHOLD) return 0;
-      if (d > RES_MEDIUM_THRESHOLD) return 1;
-      return 2;
+    // Smooth-fade resolution gate. Each kind has a "fade threshold" — the
+    // camera distance at which it starts fading out. Within FADE_WIDTH
+    // around that threshold, opacity ramps 1→0 linearly. Below the band
+    // the node is full opacity; above, completely invisible (so the
+    // renderer can skip it via nodeVisibility for perf). Wider FADE_WIDTH
+    // = softer transitions but more redraws during zoom.
+    var FADE_WIDTH = 3500;
+    var currentCameraDistance = 0;
+    function kindFadeThreshold(kind) {
+      if (FOLDER_KINDS[kind]) return Infinity;          // never fades
+      if (FILE_KINDS[kind])   return RES_FAR_THRESHOLD;
+      if (MID_KINDS[kind] || kind === null)
+                              return RES_MEDIUM_FAR_THRESHOLD;
+      return RES_MEDIUM_THRESHOLD;                       // atoms (paragraph/chat_turn)
     }
-    function isVisibleAtResolution(n, level) {
-      if (level >= 2) return true;
+    function nodeEffectiveAlpha(n) {
       var meta = n.meta || {};
-      var kind = meta.kind || null;
-      if (kind === "folder") return true;
-      if (level >= 1) {
-        if (kind && MID_KINDS[kind]) return true;
-        if (kind === null) return true; // hand-curated concept-only nodes
-        return false;
-      }
-      return false;
+      var threshold = kindFadeThreshold(meta.kind || null);
+      if (threshold === Infinity) return 1.0;
+      var halfWidth = FADE_WIDTH * 0.5;
+      var d = currentCameraDistance;
+      if (d <= threshold - halfWidth) return 1.0;
+      if (d >= threshold + halfWidth) return 0.0;
+      return 1.0 - (d - (threshold - halfWidth)) / FADE_WIDTH;
     }
 
     var graph = ForceGraph3D()(container)
@@ -224,19 +270,39 @@
         return n.label + phase;
       })
       .nodeColor(function (n) {
-        var g = nodeGlow[n.id];
-        if (!g || !g.until) return baseNodeColor(n, clusterColors);
-        var now = Date.now();
-        if (g.until <= now) {
-          delete nodeGlow[n.id];
-          return baseNodeColor(n, clusterColors);
+        // Search active + non-match: heavy dim. Bypasses pulse/base color
+        // so the matched-vs-rest contrast is immediate and unambiguous.
+        if (searchMatchSet && !searchMatchSet.has(n.id)) {
+          return SEARCH_DIM_RGBA;
         }
-        var pal = RUNNER_PALETTE[g.runner] || RUNNER_PALETTE["t-cell"];
-        var frac = (g.until - now) / EDGE_ENDPOINT_PULSE_MS;
-        return blendHex(baseNodeColor(n, clusterColors), pal.accent, frac);
+        var base;
+        var g = nodeGlow[n.id];
+        if (!g || !g.until) {
+          base = baseNodeColor(n, clusterColors);
+        } else {
+          var now = Date.now();
+          if (g.until <= now) {
+            delete nodeGlow[n.id];
+            base = baseNodeColor(n, clusterColors);
+          } else {
+            var pal = RUNNER_PALETTE[g.runner] || RUNNER_PALETTE["t-cell"];
+            var frac = (g.until - now) / EDGE_ENDPOINT_PULSE_MS;
+            base = blendHex(baseNodeColor(n, clusterColors), pal.accent, frac);
+          }
+        }
+        // Apply smooth tier-fade. Nodes inside their tier band stay full
+        // color; those near the boundary fade gradually instead of popping.
+        var alpha = nodeEffectiveAlpha(n);
+        if (alpha >= 0.995) return base;
+        return applyAlpha(base, alpha);
       })
       .nodeVal(function (n) {
-        return Math.max(1, n.weight * n.weight * 4);
+        var base = Math.max(1, n.weight * n.weight * 4);
+        // Search-match size bump — "glow" effect via larger sphere.
+        if (searchMatchSet && searchMatchSet.has(n.id)) {
+          return base * 2.5;
+        }
+        return base;
       })
       .nodeOpacity(0.9)
       .linkColor(function (e) {
@@ -264,7 +330,9 @@
       .linkDirectionalArrowRelPos(0.9)
       .linkDirectionalArrowColor(function () { return "rgba(170, 170, 170, 0.85)"; })
       .nodeVisibility(function (n) {
-        return isVisibleAtResolution(n, currentResLevel);
+        // Skip rendering when fully outside fade band (perf). Inside the
+        // band, return true and let nodeColor's alpha do the visual fade.
+        return nodeEffectiveAlpha(n) > 0.02;
       })
       .linkVisibility(function (e) {
         // Endpoint may be either object ref or id string depending on
@@ -272,8 +340,7 @@
         var s = (e.source && typeof e.source === "object") ? e.source : nodeIndex[e.source];
         var t = (e.target && typeof e.target === "object") ? e.target : nodeIndex[e.target];
         if (!s || !t) return false;
-        return isVisibleAtResolution(s, currentResLevel) &&
-               isVisibleAtResolution(t, currentResLevel);
+        return nodeEffectiveAlpha(s) > 0.02 && nodeEffectiveAlpha(t) > 0.02;
       })
       .onNodeClick(function (n) {
         if (!n || !n.id) return;
@@ -364,6 +431,321 @@
     wireZoomControls(container, graph);
 
     // ----------------------------------------------------------------
+    // Layout modes — five preset positionings. Each mode assigns
+    // n.fx/fy/fz to pin nodes; "globe" clears them so the default
+    // force-directed solver runs free. Switching reheats the alpha
+    // target briefly so the transition animates instead of snapping.
+    // ----------------------------------------------------------------
+    function nodeHash(id) {
+      // Tiny deterministic 0..1 hash so positions are stable across reloads
+      var h = 2166136261;
+      for (var i = 0; i < id.length; i++) {
+        h ^= id.charCodeAt(i);
+        h = (h * 16777619) >>> 0;
+      }
+      return h / 4294967296;
+    }
+    function clearFixedPositions() {
+      for (var i = 0; i < allNodes.length; i++) {
+        delete allNodes[i].fx;
+        delete allNodes[i].fy;
+        delete allNodes[i].fz;
+      }
+    }
+    function groupByCluster() {
+      var by = Object.create(null);
+      for (var i = 0; i < allNodes.length; i++) {
+        var n = allNodes[i];
+        (by[n.cluster] = by[n.cluster] || []).push(n);
+      }
+      return by;
+    }
+    function layoutGalaxy() {
+      // Logarithmic spiral arms — one arm per cluster, flat disc + slight Z thickness
+      var clusters = data.clusters || [];
+      var armCount = Math.max(2, clusters.length);
+      var clusterToArm = {};
+      clusters.forEach(function (c, i) { clusterToArm[c.id] = i % armCount; });
+      var byCluster = groupByCluster();
+      Object.keys(byCluster).forEach(function (cid) {
+        var arm = (cid in clusterToArm) ? clusterToArm[cid] : 0;
+        var armAngle = (arm / armCount) * Math.PI * 2;
+        var ns = byCluster[cid];
+        ns.forEach(function (n, idx) {
+          var t = idx / Math.max(1, ns.length);
+          var r = 200 + t * 2400;
+          var theta = armAngle + t * Math.PI * 3.5 + (nodeHash(n.id) - 0.5) * 0.15;
+          n.fx = r * Math.cos(theta);
+          n.fy = (nodeHash(n.id + ":z") - 0.5) * 80;
+          n.fz = r * Math.sin(theta);
+        });
+      });
+    }
+    // ----- shared BFS over the graph: builds adj + depth + parent maps
+    function bfsTree(rootCount) {
+      // rootCount=1 → single root (highest-inbound)
+      // rootCount=2 → two roots (top two by inbound), each grows its own subtree
+      var inDeg = {};
+      var adj = {};
+      for (var i = 0; i < allLinks.length; i++) {
+        var e = allLinks[i];
+        var s = (e.source && e.source.id) || e.source;
+        var t = (e.target && e.target.id) || e.target;
+        inDeg[t] = (inDeg[t] || 0) + 1;
+        (adj[s] = adj[s] || []).push(t);
+        (adj[t] = adj[t] || []).push(s);
+      }
+      var ranked = allNodes.slice().sort(function (a, b) {
+        return (inDeg[b.id] || 0) - (inDeg[a.id] || 0);
+      });
+      var roots = [];
+      for (var r = 0; r < rootCount && r < ranked.length; r++) {
+        roots.push(ranked[r].id);
+      }
+      if (!roots.length && allNodes.length) roots.push(allNodes[0].id);
+
+      var depth = {}, parent = {}, rootOf = {};
+      roots.forEach(function (rid) {
+        depth[rid] = 0;
+        parent[rid] = null;
+        rootOf[rid] = rid;
+      });
+      // Multi-source BFS — fair share between roots
+      var queue = roots.slice();
+      while (queue.length) {
+        var nid = queue.shift();
+        var nbrs = adj[nid] || [];
+        for (var k = 0; k < nbrs.length; k++) {
+          var m = nbrs[k];
+          if (!(m in depth)) {
+            depth[m] = depth[nid] + 1;
+            parent[m] = nid;
+            rootOf[m] = rootOf[nid];
+            queue.push(m);
+          }
+        }
+      }
+      return { adj: adj, depth: depth, parent: parent, rootOf: rootOf, roots: roots };
+    }
+
+    function layoutTree() {
+      // Real 3D tree — vertical trunk + branches growing up + outward.
+      // Each child placed at parent_pos + (mostly-upward unit vector ×
+      // branch_length). Branches taper with depth.
+      var tree = bfsTree(1);
+      var depth = tree.depth, parent = tree.parent;
+      var rootId = tree.roots[0];
+      var nodeById = {};
+      allNodes.forEach(function (n) { nodeById[n.id] = n; });
+
+      var pos = {};
+      if (rootId && rootId in nodeById) {
+        pos[rootId] = { x: 0, y: -1400, z: 0 };
+        nodeById[rootId].fx = 0; nodeById[rootId].fy = -1400; nodeById[rootId].fz = 0;
+      }
+
+      // Disconnected nodes — drop in a low ground cloud
+      var disconnected = [];
+      // Sort connected non-root nodes by BFS depth so parents resolve first
+      var connected = [];
+      allNodes.forEach(function (n) {
+        if (n.id === rootId) return;
+        if (n.id in depth) connected.push(n);
+        else disconnected.push(n);
+      });
+      connected.sort(function (a, b) { return depth[a.id] - depth[b.id]; });
+
+      var BRANCH_LEN = 380;
+      connected.forEach(function (n) {
+        var pp = pos[parent[n.id]];
+        if (!pp) {
+          disconnected.push(n);
+          return;
+        }
+        // Mostly-upward direction with lateral angular spread
+        var lateralAng = nodeHash(n.id) * Math.PI * 2;
+        var upBias = 0.55 + nodeHash(n.id + ":u") * 0.35;       // [0.55, 0.9] up
+        var lateralAmt = Math.sqrt(Math.max(0, 1 - upBias * upBias));
+        var dirX = lateralAmt * Math.cos(lateralAng);
+        var dirY = upBias;
+        var dirZ = lateralAmt * Math.sin(lateralAng);
+        var d = depth[n.id];
+        var len = BRANCH_LEN * Math.max(0.35, 1.0 - d * 0.04);
+        var np = {
+          x: pp.x + dirX * len,
+          y: pp.y + dirY * len,
+          z: pp.z + dirZ * len
+        };
+        pos[n.id] = np;
+        n.fx = np.x; n.fy = np.y; n.fz = np.z;
+      });
+      // Stragglers — drift cloud below the trunk
+      disconnected.forEach(function (n) {
+        n.fx = (nodeHash(n.id) - 0.5) * 1400;
+        n.fy = -1500 + (nodeHash(n.id + ":y") - 0.5) * 200;
+        n.fz = (nodeHash(n.id + ":z") - 0.5) * 1400;
+      });
+    }
+
+    function layoutBrain() {
+      // Bilateral dendritic / vascular network — two "brainstem" roots
+      // (top-2 inbound), each grows a fractal branching subtree biased
+      // outward from the midline. Z-flattened so the envelope reads
+      // bean-shaped rather than spherical.
+      var tree = bfsTree(2);
+      var depth = tree.depth, parent = tree.parent, rootOf = tree.rootOf;
+      var roots = tree.roots;
+      var rootL = roots[0] || null;
+      var rootR = roots[1] || rootL;
+      var nodeById = {};
+      allNodes.forEach(function (n) { nodeById[n.id] = n; });
+
+      // Assign each root a hemisphere
+      var hemiOfRoot = {};
+      if (rootL) hemiOfRoot[rootL] = -1;
+      if (rootR && rootR !== rootL) hemiOfRoot[rootR] = 1;
+
+      var pos = {};
+      var ROOT_Y = -200;
+      if (rootL && rootL in nodeById) {
+        pos[rootL] = { x: -700, y: ROOT_Y, z: 0 };
+        nodeById[rootL].fx = pos[rootL].x; nodeById[rootL].fy = pos[rootL].y; nodeById[rootL].fz = pos[rootL].z;
+      }
+      if (rootR && rootR !== rootL && rootR in nodeById) {
+        pos[rootR] = { x: 700, y: ROOT_Y, z: 0 };
+        nodeById[rootR].fx = pos[rootR].x; nodeById[rootR].fy = pos[rootR].y; nodeById[rootR].fz = pos[rootR].z;
+      }
+
+      var connected = [];
+      var disconnected = [];
+      allNodes.forEach(function (n) {
+        if (n.id === rootL || n.id === rootR) return;
+        if (n.id in depth) connected.push(n);
+        else disconnected.push(n);
+      });
+      connected.sort(function (a, b) { return depth[a.id] - depth[b.id]; });
+
+      var BRANCH_LEN = 260;
+      connected.forEach(function (n) {
+        var pp = pos[parent[n.id]];
+        if (!pp) { disconnected.push(n); return; }
+        var hh = hemiOfRoot[rootOf[n.id]] || 0;
+        // Direction: random spherical, then bias outward from midline
+        // (x sign of hemisphere) and slightly upward, then Z-flatten.
+        var theta = nodeHash(n.id) * Math.PI * 2;
+        var phi = Math.acos(2 * nodeHash(n.id + ":p") - 1);
+        var dirX = Math.sin(phi) * Math.cos(theta) + hh * 0.4;
+        var dirY = Math.sin(phi) * Math.sin(theta) + 0.15;
+        var dirZ = Math.cos(phi) * 0.55;        // bean: thinner in Z
+        var mag = Math.sqrt(dirX*dirX + dirY*dirY + dirZ*dirZ) || 1;
+        dirX /= mag; dirY /= mag; dirZ /= mag;
+        var d = depth[n.id];
+        var len = BRANCH_LEN * Math.max(0.45, 1.0 - d * 0.05);
+        var np = {
+          x: pp.x + dirX * len,
+          y: pp.y + dirY * len,
+          z: pp.z + dirZ * len
+        };
+        pos[n.id] = np;
+        n.fx = np.x; n.fy = np.y; n.fz = np.z;
+      });
+      disconnected.forEach(function (n) {
+        // Drift cloud below — assigned to a hemisphere by hash
+        var hh = (nodeHash(n.id) < 0.5) ? -1 : 1;
+        n.fx = hh * 900 + (nodeHash(n.id) - 0.5) * 400;
+        n.fy = -800 + (nodeHash(n.id + ":y") - 0.5) * 300;
+        n.fz = (nodeHash(n.id + ":z") - 0.5) * 280;
+      });
+    }
+    function layoutFlower() {
+      // Radial petals — one cluster per petal. Petal narrows at base,
+      // widens toward tip; slight arch above/below the equatorial plane.
+      var byCluster = groupByCluster();
+      var cids = Object.keys(byCluster);
+      var petalCount = Math.max(1, cids.length);
+      cids.forEach(function (cid, i) {
+        var ang = (i / petalCount) * Math.PI * 2;
+        var ns = byCluster[cid];
+        ns.forEach(function (n, idx) {
+          var t = (idx + 0.5) / ns.length;          // 0 base → 1 tip
+          var r = 250 + t * 2000;
+          var spread = 0.18 + 0.55 * t;             // wider near tip
+          var transAng = (nodeHash(n.id) - 0.5) * spread;
+          var bow = Math.sin(t * Math.PI) * 350;    // arch shape
+          var pa = ang + transAng;
+          n.fx = r * Math.cos(pa);
+          n.fy = bow * (0.35 + (nodeHash(n.id + ":y") - 0.5) * 0.4);
+          n.fz = r * Math.sin(pa);
+        });
+      });
+    }
+    function applyLayout(modeName) {
+      if (modeName === "globe")        clearFixedPositions();
+      else if (modeName === "galaxy")  layoutGalaxy();
+      else if (modeName === "tree")    layoutTree();
+      else if (modeName === "brain")   layoutBrain();
+      else if (modeName === "flower")  layoutFlower();
+      // Re-seat the graph so the simulator picks up fx/fy/fz changes
+      graph.graphData(graph.graphData());
+      // Reheat briefly so the transition animates
+      if (typeof graph.d3AlphaTarget === "function") {
+        graph.d3AlphaTarget(0.18);
+        if (alphaSettleTimeout) clearTimeout(alphaSettleTimeout);
+        alphaSettleTimeout = setTimeout(function () {
+          graph.d3AlphaTarget(0);
+          alphaSettleTimeout = null;
+        }, 4000);
+      }
+      if (typeof graph.refresh === "function") graph.refresh();
+    }
+    (function wireLayoutSelector() {
+      var sel = document.getElementById("lattice-layout");
+      if (!sel) return;
+      sel.addEventListener("change", function () { applyLayout(sel.value); });
+    })();
+
+    // ----------------------------------------------------------------
+    // Search wiring — input → debounce → rebuild matchSet → graph.refresh()
+    // ----------------------------------------------------------------
+    (function wireSearch() {
+      var input = document.getElementById("lattice-search");
+      var countEl = document.getElementById("lattice-search-count");
+      if (!input) return;
+      var debounceTimer = null;
+      function applySearch(rawTerm) {
+        var term = (rawTerm || "").trim().toLowerCase();
+        if (!term) {
+          searchMatchSet = null;
+          if (countEl) countEl.textContent = "";
+        } else {
+          searchMatchSet = new Set();
+          for (var i = 0; i < searchIndex.length; i++) {
+            if (searchIndex[i].hay.indexOf(term) !== -1) {
+              searchMatchSet.add(searchIndex[i].id);
+            }
+          }
+          if (countEl) {
+            var n = searchMatchSet.size;
+            countEl.textContent = n + " match" + (n === 1 ? "" : "es");
+          }
+        }
+        if (typeof graph.refresh === "function") graph.refresh();
+      }
+      input.addEventListener("input", function () {
+        var v = input.value;
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function () { applySearch(v); }, 150);
+      });
+      // Escape clears search
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") {
+          input.value = "";
+          applySearch("");
+        }
+      });
+    })();
+
+    // ----------------------------------------------------------------
     // Runner globes (ball-lightning style: white core + colored halo)
     // ----------------------------------------------------------------
     var nodeIndex = Object.create(null);
@@ -397,6 +779,37 @@
       });
     } else {
       console.warn("[interspace3d] window.THREE missing — runner globes disabled");
+    }
+
+    // Pause-on-interaction state — set by control + hover handlers below,
+    // consumed by animLoop's per-runner pause-gate. Phase clocks are shifted
+    // forward on resume so the in-flight phase finishes its remaining time
+    // budget instead of jump-resetting.
+    var lastInteractionAt = 0;
+    function markInteraction() {
+      lastInteractionAt = Date.now();
+    }
+    function isRunnersPaused() {
+      if (!lastInteractionAt) return false;
+      return (Date.now() - lastInteractionAt) < RUNNER_RESUME_DELAY_MS;
+    }
+
+    // Wire camera interaction → pause. OrbitControls fires 'start' on
+    // mousedown/touchstart and 'change' on every camera motion. Both attach
+    // so wheel-zoom (which only fires 'change') and click-drag (which fires
+    // 'start' then repeated 'change') both pause runners.
+    if (typeof graph.controls === "function") {
+      var orbitControls = graph.controls();
+      if (orbitControls && typeof orbitControls.addEventListener === "function") {
+        orbitControls.addEventListener("start", markInteraction);
+        orbitControls.addEventListener("change", markInteraction);
+      }
+    }
+    // Node hover → pause. Brief hover counts as inspection intent.
+    if (typeof graph.onNodeHover === "function") {
+      graph.onNodeHover(function (node) {
+        if (node) markInteraction();
+      });
     }
 
     function pickRandomNodeId(g) {
@@ -453,11 +866,25 @@
     // graph.refresh() only when edge/endpoint pulses are actively fading.
     function animLoop() {
       var now = Date.now();
+      var pausedNow = isRunnersPaused();
       Object.keys(runnerState).forEach(function (rname) {
         var st = runnerState[rname];
         var globe = globes[rname];
         var trace = traces[rname];
         if (!st || !globe || !trace) return;
+
+        // Pause-on-interaction: freeze runner state machine. Phase clocks
+        // are shifted forward on resume so the in-flight phase finishes
+        // its remaining time budget instead of jump-resetting.
+        if (pausedNow) {
+          if (!st._pausedAt) st._pausedAt = now;
+          return;
+        } else if (st._pausedAt) {
+          var pauseDur = now - st._pausedAt;
+          st.phaseStart += pauseDur;
+          if (st.pauseUntil > 0) st.pauseUntil += pauseDur;
+          st._pausedAt = 0;
+        }
 
         var src = nodePos(st.sourceId);
         var tgt = nodePos(st.targetId);
@@ -519,15 +946,15 @@
         }
       });
 
-      // Resolution-gate transition detection. Camera-distance change
-      // crossing a tier threshold triggers a single refresh so
-      // nodeVisibility / linkVisibility filters re-evaluate.
+      // Smooth-fade resolution gate. Camera distance is sampled each frame;
+      // when it changes by >150 units we refresh so the alpha-gradient
+      // re-evaluates. Threshold keeps redraws bounded — zoom is mouse-paced
+      // so this is plenty smooth visually without burning frames.
       var cam = graph.cameraPosition && graph.cameraPosition();
       if (cam) {
         var dist = Math.hypot(cam.x || 0, cam.y || 0, cam.z || 0);
-        var lvl = resolutionLevelFromDistance(dist);
-        if (lvl !== currentResLevel) {
-          currentResLevel = lvl;
+        if (Math.abs(dist - currentCameraDistance) > 150) {
+          currentCameraDistance = dist;
           if (typeof graph.refresh === "function") graph.refresh();
         }
       }
@@ -661,8 +1088,8 @@
 
   // ---------- runner globe construction ----------
   // Ball-lightning aesthetic: bright cool-white core + accent-tinted halos.
-  // All three runners share the same white-hot center; only the halos differ
-  // (cyan / gold / indigo) — Dusty's call.
+  // All runners share the same white-hot center; only the halos differ
+  // (cyan / gold / indigo / red).
   function makeRunnerGlobe(THREE, palette) {
     var group = new THREE.Group();
     var core = new THREE.Mesh(
@@ -750,6 +1177,20 @@
     var c = hexToRgb(hex);
     if (!c) return hex;
     return "rgba(" + c.r + "," + c.g + "," + c.b + "," + alpha.toFixed(2) + ")";
+  }
+
+  // Multiply opacity into either #RRGGBB or rgba(r,g,b,a). Used by the
+  // smooth tier-fade so an already-pulsed node (which is rgba) still
+  // dims correctly through the fade band.
+  function applyAlpha(color, alpha) {
+    var rgbaM = /^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)$/.exec(color);
+    if (rgbaM) {
+      var newA = +rgbaM[4] * alpha;
+      return "rgba(" + rgbaM[1] + "," + rgbaM[2] + "," + rgbaM[3] + "," + newA.toFixed(3) + ")";
+    }
+    var c = hexToRgb(color);
+    if (!c) return color;
+    return "rgba(" + c.r + "," + c.g + "," + c.b + "," + alpha.toFixed(3) + ")";
   }
 
   function blendHex(base, accent, frac) {

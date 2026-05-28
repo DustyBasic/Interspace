@@ -32,6 +32,7 @@ from typing import Any
 from ..cross_refs import (
     SECTION_ANCHOR_RE,
     extract_cross_references,
+    fnv1a_128_hex,
     try_repair_mojibake,
 )
 
@@ -58,17 +59,43 @@ _NUMBERED_RE = re.compile(r"^(\d{2,4})[._-](.+)$")
 _CURRENT_RE = re.compile(r"^CURRENT[_-](.+)$", re.IGNORECASE)
 _CHECKSUM_RE = re.compile(r"^(CHECKSUMS?_[A-Z0-9]+)_.*$")
 
-# A divider line of repeated `=`, `-`, or `_` (3+). Required to co-occur with the
-# section pattern to qualify as a section anchor — distinguishes title blocks
-# (which have `===` decorators) from numbered list items (which don't).
+# A divider line of repeated `=`, `-`, or `_` (3+). Co-occurs with the
+# numbered section pattern in older-style title blocks — distinguishes them
+# from inline numbered list items.
 _DIVIDER_LINE_RE = re.compile(r"^[=\-_]{3,}\s*$", re.MULTILINE)
+# Markdown ATX headers (1-6 hashes followed by a space + non-whitespace)
+_MARKDOWN_HEADER_RE = re.compile(r"^\s*#{1,6}\s+\S")
+# Verbose section prefixes — "Part 3", "Chapter 6", "Section 1.2", "Phase 4"
+_VERBOSE_HEADER_RE = re.compile(
+    r"^\s*(Part|Section|Chapter|Phase|Step|Topic|Appendix)\s+\d+\b",
+    re.IGNORECASE,
+)
 
 
 def _is_section_anchor(para: str) -> bool:
-    """A paragraph is a section anchor iff it contains BOTH a numbered section
-    pattern AND a divider line. This filters out numbered list items inside
-    section bodies (which match the pattern but lack the decorator)."""
-    return bool(SECTION_ANCHOR_RE.search(para) and _DIVIDER_LINE_RE.search(para))
+    """Section-anchor detection across the common header conventions found in
+    the archive (markdown, governance docs, GPT-output prose, classic
+    decorated titles). A paragraph qualifies if its first non-empty line
+    matches one of:
+      - Markdown ATX header: "# Title", "## 6A. Title", "### Subsection"
+      - Verbose prefix: "Part 3:", "Chapter 6", "Phase 1 — Intake"
+      - Numbered + divider: "6C. IRON LAW (...)" co-occurring with ===/---
+
+    Headers always survive paragraph-noise filtering downstream so they
+    persist as structural landmarks for the renderer's section pass.
+    """
+    if not para:
+        return False
+    first_line = para.lstrip().split("\n", 1)[0]
+    if len(first_line) > 200:
+        return False
+    if _MARKDOWN_HEADER_RE.match(first_line):
+        return True
+    if _VERBOSE_HEADER_RE.match(first_line):
+        return True
+    if SECTION_ANCHOR_RE.search(first_line) and _DIVIDER_LINE_RE.search(para):
+        return True
+    return False
 
 _CLUSTER_PALETTE = [
     "#4f7cac", "#c97b63", "#7aa974", "#9b7aa9",
@@ -315,7 +342,9 @@ def _paragraph_nodes(
     """Split a text file into paragraph nodes. Returns [] if file is unreadable
     or contains no paragraphs above _MIN_PARAGRAPH_CHARS."""
     try:
-        content = f.read_text(encoding="utf-8", errors="replace")
+        content = try_repair_mojibake(
+            f.read_text(encoding="utf-8", errors="replace")
+        )
     except OSError:
         return []
     rel_path = f"{folder_rel}/{f.name}" if folder_rel else f.name
@@ -340,6 +369,7 @@ def _paragraph_nodes(
                 "paragraph_index": idx,
                 "paragraphs_in_file": len(paragraphs),
                 "content": para,
+                "sig128": fnv1a_128_hex(para),
                 "char_count": len(para),
                 "created_at": file_mtime_iso,
             },
@@ -366,9 +396,10 @@ def _split_paragraphs(text: str) -> list[str]:
     content-type self-identification for paste-block coalescing.
 
     Dictionary-grain design: each paragraph is its own addressable atom.
-    Dense archives (brain_candy, secret_candy, governance docs) carry
-    singular value per paragraph — a chat turn, a definition, an axiom,
-    a sticky — so we preserve that granularity rather than coalescing.
+    Dense archives (chat transcripts, documentation trees, governance
+    docs) carry singular value per paragraph — a chat turn, a definition,
+    an axiom, a sticky — so we preserve that granularity rather than
+    coalescing.
 
     Type-aware coalescing: consecutive `>`/`>>`-quoted paragraphs (GPT
     cut-and-paste responses where internal blank lines separated logical

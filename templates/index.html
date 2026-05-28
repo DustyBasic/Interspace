@@ -38,22 +38,30 @@
     </section>
   {% endif %}
 
-  <section class="node-list">
-    <h2>All nodes</h2>
-    <ul class="node-list__items">
-      {% for node in nodes %}
-        <li class="node-list__item">
-          <a href="{{ asset_prefix }}nodes/{{ node.id }}.html">{{ node.label }}</a>
-          <span class="node-list__cluster">in {{ node.cluster }}</span>
-          {% if node.tags %}
-            <span class="node-list__tags">
-              {% for tag in node.tags %}
-                <span class="tag">{{ tag }}</span>
-              {% endfor %}
-            </span>
-          {% endif %}
-        </li>
-      {% endfor %}
-    </ul>
-  </section>
+  {% if key_nodes %}
+    <section class="node-list">
+      <h2>Key nodes
+        <span class="count">(top {{ key_nodes | length }} of {{ nodes | length }} by recency &times; relevance)</span>
+      </h2>
+      <p class="node-list__hint">
+        Weighted by inbound references &times; node weight &times; recency (180-day half-life) &times; phase.
+        Open the lattice to browse the full set.
+      </p>
+      <ul class="node-list__items">
+        {% for node in key_nodes %}
+          <li class="node-list__item">
+            <a href="{{ asset_prefix }}nodes/{{ node.id }}.html">{{ node.label }}</a>
+            <span class="node-list__cluster">in {{ node.cluster }}</span>
+            {% if node.tags %}
+              <span class="node-list__tags">
+                {% for tag in node.tags[:4] %}
+                  <span class="tag">{{ tag }}</span>
+                {% endfor %}
+              </span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
 {% endblock %}

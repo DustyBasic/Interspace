@@ -16,7 +16,7 @@ Architectural weighting (Interspace-light, not Pi-spec heavy):
 Runner roles:
   - t-cell : scans for pairwise cross-source mentions (cites_file, cites_section)
   - rel    : binds triples that share content/concept across docs
-  - neg-t  : marks inverse-correlation pairs (ledger_inversion-style)
+  - neg-t  : marks inverse-correlation pairs (inverse-relation-style)
 
 Each cycle:
   1. Load current lattice (embedded JSON in lattice.html)
@@ -40,16 +40,37 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from .cross_refs import extract_cross_references
+from collections import defaultdict
+
+from .cross_refs import extract_cross_references, fnv1a_128_hex
 
 
-# Discovery cadence per runner. Jitter applied each cycle so the three don't
+# Discovery cadence per runner. Jitter applied each cycle so the four don't
 # lock-step. Adaptive sliding scale based on activity is a v2 enhancement.
 DEFAULT_CYCLE_SECONDS: dict[str, tuple[float, float]] = {
     "t-cell": (120.0, 20.0),  # mean 120s ± 20s jitter
     "rel":    (150.0, 25.0),
     "neg-t":  (180.0, 30.0),
+    "red":    (210.0, 30.0),  # repair runner — heavier scan, less frequent
 }
+
+# Cap members per duplicate bucket to avoid edge explosion in pathological
+# cases (CHECKSUMS-style files with thousands of identical lines).
+_RED_DUPLICATE_BUCKET_CAP = 6
+# Skip very-short paragraphs from duplicate detection — too noisy below this
+# (boilerplate / ruler lines / micro-fragments collide spuriously).
+_RED_DUPLICATE_MIN_CHARS = 80
+# Stitch pass: paragraphs below this char_count are "chopped" — atoms of
+# nothing on their own. Runs of consecutive shorts in the same source_file
+# get rejoined via `stitch` edges so the operator can read the recovered
+# context string instead of disjoint fragments.
+_RED_SHORT_CHARS = 120
+# Per-cycle broadcast cap. Red can find tens of thousands of duplicate edges
+# in one pass; broadcasting them all at once overwhelms the SSE client queue
+# (which caps at 200) and floods the lattice with simultaneous edge pulses.
+# Cap at this many per cycle; the rest defer to subsequent cycles by leaving
+# them out of known_edge_keys (next cycle re-discovers and tries again).
+_RUNNER_BROADCAST_CAP_PER_CYCLE = 80
 
 _LATTICE_DATA_RE = re.compile(
     r'<script id="lattice-data" type="application/json">(.+?)</script>',
@@ -164,6 +185,64 @@ class LiveRunnerState:
                 time.sleep(1.0)
                 slept += 1.0
 
+    def _run_one_cycle(self, runner_name: str) -> None:
+        import sys as _sys
+        tag = f"[{self.rendered_dir.name}/{runner_name}]"
+        # Skip the cycle entirely if nobody is listening. Otherwise the
+        # runner would consume new discoveries into known_edge_keys and
+        # broadcast them to zero clients — by the time a client connects
+        # the burst is already "known" and silently deduped next cycle.
+        with self._clients_lock:
+            client_count = len(self._clients)
+        if client_count == 0:
+            print(f"{tag} skip (0 clients)", file=_sys.stderr, flush=True)
+            return
+        data = self.lattice()
+        if not data:
+            print(f"{tag} skip (no lattice data)", file=_sys.stderr, flush=True)
+            return
+        nodes = data.get("nodes", [])
+        if not nodes:
+            return
+        discovered = self._discover(runner_name, nodes)
+        candidate_new: list[dict[str, Any]] = []
+        for edge in discovered:
+            if self._edge_key(edge) in self.known_edge_keys:
+                continue
+            candidate_new.append(edge)
+        print(
+            f"{tag} cycle: {len(discovered)} discovered, {len(candidate_new)} new, "
+            f"{client_count} clients",
+            file=_sys.stderr, flush=True,
+        )
+        # Cap broadcasts per cycle so large duplicate sets trickle out over
+        # subsequent cycles rather than flooding the client queue (which
+        # caps at 200) in a single burst.
+        emit = candidate_new[:_RUNNER_BROADCAST_CAP_PER_CYCLE]
+        # Mark only what we emit; the rest stay unknown so the next cycle
+        # rediscovers and emits the next batch.
+        for edge in emit:
+            self.known_edge_keys.add(self._edge_key(edge))
+            self.broadcast({
+                "type": "edge_added",
+                "runner": runner_name,
+                "edge": edge,
+            })
+        if emit:
+            import sys as _sys
+            deferred = max(0, len(candidate_new) - len(emit))
+            print(
+                f"[{self.rendered_dir.name}/{runner_name}] +{len(emit)} edges"
+                + (f" (+{deferred} deferred)" if deferred else ""),
+                file=_sys.stderr, flush=True,
+            )
+            self.broadcast({
+                "type": "cycle_complete",
+                "runner": runner_name,
+                "added": len(emit),
+                "deferred": deferred,
+            })
+
     # ----------------------------------------------------------------
     # Discovery passes — one per runner kind
     # ----------------------------------------------------------------
@@ -199,8 +278,11 @@ class LiveRunnerState:
         self, runner_name: str, nodes: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """Each runner returns a subset of extract_cross_references's output,
-        filtered to its own role. Lightweight — all three share the same
-        regex pass, then filter by edge kind."""
+        filtered to its own role. Lightweight — t-cell/rel/neg-t share the
+        same regex pass then filter by edge kind. Red runner has its own
+        discovery pass (duplicate detection via sig128)."""
+        if runner_name == "red":
+            return self._discover_red(nodes)
         all_edges = extract_cross_references(nodes)
         if runner_name == "t-cell":
             # T-cell catches pairwise mentions across files / sections
@@ -216,6 +298,196 @@ class LiveRunnerState:
         else:
             wanted = set()
         return [e for e in all_edges if e.get("kind") in wanted]
+
+    def _discover_red(
+        self, nodes: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Red runner: two-pass discovery.
+
+        Pass A — near-duplicate detection: bucket text-bearing nodes by
+        sig128, emit `near_duplicate_of` between members of any 2+ bucket.
+        Surfaces forked-doc / pasted-block copies across source files.
+
+        Pass B — short-fragment stitching: find runs of CONSECUTIVE short
+        paragraphs in the same source_file (paragraphs below `_RED_SHORT_CHARS`
+        char_count — atoms-of-nothing that mean little alone) and emit
+        `stitch` edges between consecutive members of each run. Recovers
+        the context string that paragraph-splitting chopped apart.
+
+        Both passes share the per-cycle broadcast cap upstream so neither
+        starves the other when buckets are huge.
+
+        Future expansion (deferred):
+          - Citation/source repair: re-run R1/R3 cross-ref regex against
+            paragraphs that didn't resolve at first pass.
+          - Content_type re-classification: re-run content_classifier on
+            post-merge data so unclassified nodes get typed."""
+        edges: list[dict[str, Any]] = []
+        edges.extend(self._discover_red_duplicates(nodes))
+        edges.extend(self._discover_red_stitch(nodes))
+        return edges
+
+    def _discover_red_duplicates(
+        self, nodes: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for n in nodes:
+            meta = n.get("meta") or {}
+            if meta.get("kind") not in (
+                "paragraph", "section_anchor", "chat_turn",
+                "finding", "observation",
+            ):
+                continue
+            sig = meta.get("sig128")
+            if not sig:
+                content = meta.get("content") or ""
+                if len(content) < _RED_DUPLICATE_MIN_CHARS:
+                    continue
+                sig = fnv1a_128_hex(content)
+            buckets[sig].append(n)
+
+        edges: list[dict[str, Any]] = []
+        for sig, members in buckets.items():
+            if len(members) < 2:
+                continue
+            if len(members) > _RED_DUPLICATE_BUCKET_CAP:
+                members = members[:_RED_DUPLICATE_BUCKET_CAP]
+            for i in range(len(members)):
+                for j in range(i + 1, len(members)):
+                    edges.append({
+                        "source": members[i]["id"],
+                        "target": members[j]["id"],
+                        "kind": "near_duplicate_of",
+                        "weight": 0.85,
+                        "meta": {
+                            "sig128": sig,
+                            "via": "red-runner",
+                        },
+                    })
+        return edges
+
+    def _discover_red_stitch(
+        self, nodes: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Group consecutive short paragraphs per source_file, emit
+        `stitch` edges between adjacent members of each run.
+
+        Requirements (per node):
+          - meta.kind == "paragraph"
+          - meta.source_file present
+          - meta.paragraph_index present (so we can sort + detect adjacency)
+          - meta.char_count present and < _RED_SHORT_CHARS
+
+        A 'run' is 2+ paragraphs in the same source_file with consecutive
+        paragraph_index values, ALL of them short. The edge chain
+        (run[0]→run[1]→run[2]→...) gives the operator a visual context
+        string for what was over-atomized."""
+        by_file: dict[str, list[tuple[int, dict[str, Any]]]] = defaultdict(list)
+        for n in nodes:
+            meta = n.get("meta") or {}
+            if meta.get("kind") != "paragraph":
+                continue
+            sf = meta.get("source_file")
+            idx = meta.get("paragraph_index")
+            cc = meta.get("char_count")
+            if sf is None or not isinstance(idx, int) or not isinstance(cc, int):
+                continue
+            if cc >= _RED_SHORT_CHARS:
+                continue
+            by_file[sf].append((idx, n))
+
+        edges: list[dict[str, Any]] = []
+        for sf, items in by_file.items():
+            items.sort(key=lambda t: t[0])
+            run: list[dict[str, Any]] = []
+            prev_idx: int | None = None
+            for idx, n in items:
+                if prev_idx is None or idx == prev_idx + 1:
+                    run.append(n)
+                else:
+                    self._emit_stitch_run(run, edges)
+                    run = [n]
+                prev_idx = idx
+            self._emit_stitch_run(run, edges)
+        return edges
+
+    @staticmethod
+    def _emit_stitch_run(
+        run: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+    ) -> None:
+        if len(run) < 2:
+            return
+        for i in range(len(run) - 1):
+            edges.append({
+                "source": run[i]["id"],
+                "target": run[i + 1]["id"],
+                "kind": "stitch",
+                "weight": 1.0,
+                "meta": {"via": "red-runner-stitch", "run_size": len(run)},
+            })
+
+
+class MultiLiveRunnerState:
+    """Hub-layout wrapper: one LiveRunnerState per dataset subdir, all
+    sharing a single client queue. A browser subscribed to
+    /api/runners/stream sees events from every dataset; the lattice
+    viewer's `handleEdgeAdded` filters by `nodeIndex` so edges for
+    other datasets are silently ignored at the client.
+
+    Duck-types LiveRunnerState (register/unregister/start/stop/lattice)
+    so the HTTP handler doesn't care which one it has.
+    """
+
+    def __init__(self, base_dir: Path) -> None:
+        self.base_dir = base_dir
+        self._clients: list[queue.Queue[str]] = []
+        self._clients_lock = threading.Lock()
+        self.sub_states: list[LiveRunnerState] = []
+        for sub in sorted(base_dir.iterdir(), key=lambda p: p.name.lower()):
+            if not sub.is_dir():
+                continue
+            if not (sub / "lattice.html").exists():
+                continue
+            s = LiveRunnerState(sub)
+            # Share the client list — broadcasts from any sub-state reach
+            # all subscribed clients.
+            s._clients = self._clients
+            s._clients_lock = self._clients_lock
+            self.sub_states.append(s)
+
+    @property
+    def dataset_names(self) -> list[str]:
+        return [s.rendered_dir.name for s in self.sub_states]
+
+    def lattice(self) -> dict[str, Any] | None:
+        # Loads each sub-state's lattice so known_edge_keys is seeded.
+        # Returns the first one (caller uses it only for the seed-check).
+        first: dict[str, Any] | None = None
+        for s in self.sub_states:
+            d = s.lattice()
+            if first is None:
+                first = d
+        return first
+
+    def start(self, cycles: dict[str, tuple[float, float]] | None = None) -> None:
+        for s in self.sub_states:
+            s.start(cycles=cycles)
+
+    def stop(self) -> None:
+        for s in self.sub_states:
+            s.stop()
+
+    def register_client(self) -> queue.Queue[str]:
+        q: queue.Queue[str] = queue.Queue(maxsize=200)
+        with self._clients_lock:
+            self._clients.append(q)
+        return q
+
+    def unregister_client(self, q: queue.Queue[str]) -> None:
+        with self._clients_lock:
+            if q in self._clients:
+                self._clients.remove(q)
 
 
 # ----------------------------------------------------------------

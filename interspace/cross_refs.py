@@ -56,9 +56,9 @@ FULL_DOCTRINE_RE = re.compile(
 SECTION_ID_RE = re.compile(r"^\s*(\d+[A-Z]?)\.")
 
 # R7: meta-field references. Some adapters carry explicit file pointers in
-# named meta fields (e.g. graphic_mem.findings.source_report is the re-walk
-# report .md that produced the finding). When that string matches a known
-# file anchor's basename, emit a typed edge with provenance via the field name.
+# named meta fields (e.g. a `source_report` field naming the document that
+# produced the node). When that string matches a known file anchor's basename,
+# emit a typed edge with provenance via the field name.
 #
 # `meta.source_file` is deliberately NOT included — it duplicates the
 # `contains` edges already emitted from file anchors to their paragraphs,
@@ -68,6 +68,26 @@ META_REF_KINDS = {
     "filename":      ("cites_file",         0.70),
     "path":          ("cites_file",         0.70),
 }
+
+
+# FNV-1a 128-bit per Pi spec. Used as paragraph content signature (`sig128`)
+# so downstream scanners (re-walk, red runner duplicate detection,
+# semantic-similarity passes) can fingerprint content without re-hashing.
+# Stdlib-only — no hash library import needed.
+_FNV_OFFSET_BASIS_128 = 0x6C62272E07BB014262B821756295C58D
+_FNV_PRIME_128 = 0x0000000001000000000000000000013B
+_FNV_128_MASK = (1 << 128) - 1
+
+
+def fnv1a_128_hex(text: str) -> str:
+    """FNV-1a 128-bit over UTF-8 bytes of `text`. Returns 32-char hex string.
+    Deterministic + collision-resistant enough for content-addressing of
+    paragraph-scale text (typical paragraph << 2^64 inputs)."""
+    h = _FNV_OFFSET_BASIS_128
+    for b in text.encode("utf-8", errors="replace"):
+        h ^= b
+        h = (h * _FNV_PRIME_128) & _FNV_128_MASK
+    return f"{h:032x}"
 
 
 def try_repair_mojibake(text: str) -> str:
@@ -227,9 +247,9 @@ def extract_cross_references(nodes: list[dict[str, Any]]) -> list[dict[str, Any]
                 })
 
     # R7: meta-field references — explicit file pointers in named meta fields
-    # (e.g. source_report on graphic_mem findings). Resolves the field's
-    # string value to a file anchor by basename. Per-node dedup so each
-    # (source, target, kind) only fires once.
+    # (e.g. a `source_report` field on adapter-emitted nodes). Resolves the
+    # field's string value to a file anchor by basename. Per-node dedup so
+    # each (source, target, kind) only fires once.
     for n in nodes:
         meta = n.get("meta") or {}
         seen_meta_targets: set[tuple[str, str]] = set()

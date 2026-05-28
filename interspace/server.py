@@ -20,7 +20,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from .live_runner import LiveRunnerState, stream_events
+from .live_runner import LiveRunnerState, MultiLiveRunnerState, stream_events
 
 
 def run_server(
@@ -32,8 +32,8 @@ def run_server(
 ) -> int:
     """Serve `directory` over HTTP on `host:port` until Ctrl-C.
 
-    When `live=True`, mount the live runner subsystem: 3 background runner
-    threads + SSE endpoint at /api/runners/stream.
+    When `live=True`, mount the live runner subsystem: background runner
+    threads (t-cell / rel / neg-t / red) + SSE endpoint at /api/runners/stream.
 
     Returns 0 on clean shutdown, 2 if the directory is missing or not a dir,
     4 if the port is already in use.
@@ -45,12 +45,32 @@ def run_server(
         print(f"error: not a directory: {directory}", file=sys.stderr)
         return 2
 
-    runner_state: LiveRunnerState | None = None
+    runner_state: LiveRunnerState | MultiLiveRunnerState | None = None
+    runner_mode: str = ""
     if live:
-        runner_state = LiveRunnerState(directory)
-        # Force initial lattice load + edge-set seed so first cycle diffs cleanly
-        runner_state.lattice()
-        runner_state.start()
+        # Hub layout (base_dir has subdirs each with their own lattice.html)
+        # gets a MultiLiveRunnerState that runs a runner cohort per dataset
+        # and merges their broadcasts onto one client list. Single-dataset
+        # mode (directory itself contains lattice.html) uses the simple state.
+        if (directory / "lattice.html").exists():
+            runner_state = LiveRunnerState(directory)
+            runner_mode = f"single ({directory.name})"
+        else:
+            multi = MultiLiveRunnerState(directory)
+            if not multi.sub_states:
+                print(
+                    f"warning: --live given but no lattice.html found under "
+                    f"{directory} or its subdirs; runners disabled",
+                    file=sys.stderr,
+                )
+                runner_state = None
+            else:
+                runner_state = multi
+                runner_mode = f"hub ({', '.join(multi.dataset_names)})"
+        if runner_state is not None:
+            # Force initial lattice load + edge-set seed so first cycle diffs cleanly
+            runner_state.lattice()
+            runner_state.start()
 
     handler = functools.partial(
         _InterspaceRequestHandler,
@@ -62,8 +82,14 @@ def run_server(
         with http.server.ThreadingHTTPServer((host, port), handler) as httpd:
             url = f"http://{host}:{port}/"
             print(f"serving {directory} at {url}", file=sys.stderr)
-            if live:
-                print("live runner: ON (3 runners — t-cell, rel, neg-t)", file=sys.stderr)
+            if live and runner_state is not None:
+                from .live_runner import DEFAULT_CYCLE_SECONDS
+                runners = ", ".join(DEFAULT_CYCLE_SECONDS.keys())
+                print(
+                    f"live runner: ON ({len(DEFAULT_CYCLE_SECONDS)} runners — {runners}) "
+                    f"mode={runner_mode}",
+                    file=sys.stderr,
+                )
             print("press Ctrl-C to stop.", file=sys.stderr)
             if open_browser:
                 webbrowser.open(url)
@@ -129,6 +155,9 @@ class _InterspaceRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002 — stdlib API
         # Quieter logging: skip SSE heartbeat noise but keep regular requests.
-        if "/api/runners/stream" in (args[0] if args else ""):
+        # args[0] is usually the request line, but for log_error it's an
+        # HTTPStatus enum — coerce defensively.
+        first = str(args[0]) if args else ""
+        if "/api/runners/stream" in first:
             return
         super().log_message(format, *args)

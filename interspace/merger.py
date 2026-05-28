@@ -174,11 +174,11 @@ def merge_inputs(config: dict[str, Any], base_dir: Path | None = None) -> dict[s
             out["clusters"].append(c)
 
     # Post-merge cross-reference pass — deterministic Stage 1 regex extraction
-    # over the combined prefix-namespaced node set. Catches cross-source mentions
-    # that no single adapter could resolve on its own (e.g. a graphic_mem
-    # sticky mentioning a file that lives in gov_alignment, or a paragraph in
-    # one foundation referencing a file in another). Dedupes against edges
-    # already emitted by each adapter so intra-source edges aren't doubled.
+    # over the combined prefix-namespaced node set. Catches cross-source
+    # mentions that no single adapter could resolve on its own (e.g. a node
+    # in one source referencing a file that lives in another). Dedupes
+    # against edges already emitted by each adapter so intra-source edges
+    # aren't doubled.
     existing_edge_keys = {
         (e.get("source"), e.get("target"), e.get("kind")) for e in out["edges"]
     }
