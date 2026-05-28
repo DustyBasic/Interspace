@@ -12,5 +12,10 @@
 #     in one shot). On macOS / Linux, .sh / .command equivalents.
 #   - A modern browser with WebGL support (Chrome, Firefox, Edge, Safari)
 #     for the 3D lattice view.
+#
+# An `interspace init` one-shot installer that scaffolds the workspace +
+# launcher + desktop shortcut WILL ship in v0.6, and a bundled-Python
+# executable (no `pip` required) is on the v0.7+ roadmap. Until then,
+# the launcher-batch pattern is the recommended way to operate.
 
 jinja2>=3.1.0

@@ -75,9 +75,21 @@ desktop app. To run it on a fresh machine you need:
   for the 3D lattice view.
 
 There is no installer yet — clone, `pip install -r requirements.txt`,
-write a launcher batch, point a desktop shortcut at it. An `interspace
-init` command that scaffolds the workspace + launcher + shortcut in one
-shot is on the v0.6 roadmap.
+write a launcher batch, point a desktop shortcut at it. A one-shot
+installer **will ship in upcoming releases**:
+
+- **v0.6** — `interspace init <workspace>` command: scaffolds the
+  workspace folder layout, writes the launcher `.bat` (Windows) /
+  `.sh` / `.command` (macOS, Linux), generates the desktop shortcut,
+  renders a starter sample so first-launch shows something.
+- **v0.7** — `interspace ingest <folder>` for one-command corpus
+  walk-and-render, removing the multi-step adapter call.
+- **v0.8+** — bundled-Python build (pyinstaller / nuitka) so an
+  operator can download a single executable, double-click, and have
+  a working Interspace without ever touching `pip`.
+
+Until then, the launcher-batch pattern below is the recommended
+operating mode.
 
 ## Quick start
 
@@ -263,20 +275,27 @@ ships polymathic pattern-rec primitives (continuation_likelihood,
 lexical_chain_density, shingle_overlap, sig128_prefix_collision,
 char_class_shift, spurious_seam_score) for runners to compose.
 
-**v0.6 — likely next:**
+**v0.6 — committed.** Will ship:
 
-- **One-shot installer.** `interspace init <workspace>` that creates
-  the workspace folders, writes the launcher `.bat` / `.sh`, and
-  drops a desktop shortcut pointing at it — so a new operator goes
-  from clone to running lattice in one command.
-- **Runner enrichment.** Wire `speed_square.spurious_seam_score` into
-  a red runner discovery pass — runtime seam detection that catches
-  the spurious breaks the static heuristics miss.
-- **Operator accept/reject UI** for runner proposals. Live edges get
-  a one-click "accept" → moves to the persistent lattice; "reject" →
-  feeds back into the runner's confidence threshold per pattern type.
-- **`markdown_corpus` adapter** — one node per `.md` file, edges from
-  link references, frontmatter → tags.
+- **One-shot installer.** `interspace init <workspace>` creates the
+  workspace folders, writes the launcher `.bat` / `.sh` / `.command`,
+  and drops a desktop shortcut pointing at it — so a new operator
+  goes from clone to running lattice in one command on Windows,
+  macOS, or Linux.
+- **Runner enrichment.** Wire `speed_square.spurious_seam_score`
+  into a red runner discovery pass — runtime seam detection that
+  catches the spurious breaks the static heuristics miss.
+- **Operator accept/reject UI** for runner proposals. Live edges
+  get a one-click "accept" → moves to the persistent lattice;
+  "reject" → feeds back into the runner's confidence threshold per
+  pattern type.
+- **`markdown_corpus` adapter** — one node per `.md` file, edges
+  from link references, frontmatter → tags.
+
+**v0.7+ — planned.** `interspace ingest <folder>` one-step
+walk-and-render, bundled-Python executable so the install needs no
+`pip` (download → double-click → working Interspace), federation
+primitives for cross-operator lattice sharing.
 
 ## License
 
