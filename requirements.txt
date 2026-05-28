@@ -1,4 +1,16 @@
 # Interspace runtime dependencies
 # Minimal — Python 3.11+ stdlib + jinja2 is the floor.
+#
+# Beyond Python packages, day-to-day operation expects:
+#   - A local HTTP server to serve the rendered lattice. Interspace ships
+#     a stdlib-only one: `python -m interspace serve <dir>`. Any static
+#     file server works (nginx, Python's http.server, etc.) — but the
+#     `--live` SSE runner layer requires Interspace's built-in server.
+#   - A shell to launch the render + serve cycle. On Windows, the typical
+#     pattern is one-click .bat launchers (see `local/launchers/` in your
+#     workspace for examples that start the server and open the lattice
+#     in one shot). On macOS / Linux, .sh / .command equivalents.
+#   - A modern browser with WebGL support (Chrome, Firefox, Edge, Safari)
+#     for the 3D lattice view.
 
 jinja2>=3.1.0

@@ -54,12 +54,38 @@ doesn't query it, it **renders** it as something a human can navigate.
   the renderer handles the rest
 - **Vendored, version-pinned JS** with SHA256 provenance — no CDN dependency
 
+## Runtime requirements
+
+Interspace operates as a **local server + shell-launched batch**, not a
+desktop app. To run it on a fresh machine you need:
+
+- **Python 3.11+** with `jinja2` (the only Python dep — see
+  `requirements.txt`)
+- **A local HTTP server.** Interspace ships one in stdlib —
+  `python -m interspace serve <dir>` — that auto-mounts the live SSE
+  runner layer when `--live` is passed. Any static-file server (nginx,
+  `python -m http.server`, an S3 bucket) also works for the read path,
+  but loses the live discovery animations.
+- **A shell** to drive `render` → `serve` → open-in-browser. On Windows
+  the typical pattern is one-click `.bat` launchers; on macOS / Linux,
+  `.sh` or `.command` files. See [`local/launchers/`](docs/) in your
+  workspace for examples that boot the server and open the lattice
+  in one shot.
+- **A WebGL-capable browser** (modern Chrome / Firefox / Edge / Safari)
+  for the 3D lattice view.
+
+There is no installer yet — clone, `pip install -r requirements.txt`,
+write a launcher batch, point a desktop shortcut at it. An `interspace
+init` command that scaffolds the workspace + launcher + shortcut in one
+shot is on the v0.6 roadmap.
+
 ## Quick start
 
 ```bash
-pip install jinja2
-python -m interspace render samples/example.json --output rendered/
-# open rendered/index.html in a browser
+pip install -r requirements.txt
+python -m interspace render samples/example.json -o samples/rendered_example/
+python -m interspace serve samples/rendered_example/ --live
+# browser opens automatically; the live runners begin discovering
 ```
 
 For your own data, write an adapter (see `docs/ADAPTERS.md`) and run:
@@ -67,7 +93,29 @@ For your own data, write an adapter (see `docs/ADAPTERS.md`) and run:
 ```bash
 python -m interspace.adapters.<your_adapter> <source> -o input.json
 python -m interspace render input.json -o rendered/
+python -m interspace serve rendered/ --live
 ```
+
+### One-click pattern (Windows)
+
+Drop a `Lattice.bat` file in a convenient location:
+
+```bat
+@echo off
+cd /d "C:\path\to\Interspace"
+netstat -ano | findstr ":8780 " | findstr LISTENING >nul 2>&1
+if errorlevel 1 (
+    start "Interspace :8780" /min python -m interspace serve local\rendered --port 8780 --no-open --live
+    timeout /t 2 /nobreak >nul
+)
+start "" http://127.0.0.1:8780/
+exit /b 0
+```
+
+Right-click → Send to → Desktop (create shortcut). One double-click
+later, the server is running and the lattice is open. The `netstat`
+guard makes the launcher idempotent — running it again doesn't spawn
+a second server, it just opens a new tab pointing at the running one.
 
 ## Architecture
 
@@ -201,17 +249,34 @@ sample (`example.json`) committed.
 click-to-navigate. Scales to ~1000+ nodes where 2D cose layout collapsed;
 the prior 2D Cytoscape renderer was removed.
 
-**v0.2 — likely next:** `markdown_corpus` adapter (one node per `.md`
-file, edges from link references, frontmatter → tags); per-dataset
-archive view (dedicated filtered page); node detail pages showing
-inbound/outbound *edge kinds* grouped semantically.
+**v0.5 — snowflake.** Shipped. Live runner layer matured into four
+specialists (T-cell / REL / NEG-T / red) running per-dataset cohorts in
+hub mode. The lattice gained five shape modes (globe / galaxy / tree /
+brain / flower), keyword search with match-glow + non-match dim, smooth
+4-tier resolution gating, and runner pause-on-interaction. The renderer
+gained subtractive document consolidation: seam-binding for spurious
+paragraph breaks, page consolidation for short-run fragment runs, and
+dense-doc sectioning into a stepped mid-tier (file → document_section
+→ paragraph/page). Memory-scale archives (~36K nodes) compress ~23%
+through the static layer alone. New module `interspace/speed_square.py`
+ships polymathic pattern-rec primitives (continuation_likelihood,
+lexical_chain_density, shingle_overlap, sig128_prefix_collision,
+char_class_shift, spurious_seam_score) for runners to compose.
 
-**v0.5 — spatial-hierarchy navigation (planned).** Extend the 3D view so
-camera zoom level traverses container hierarchy: zooming into a cluster's
-volume expands it into its own local force-directed sub-graph; zooming
-further expands a document anchor into its paragraphs; zooming out
-restores parent context. Each zoom level a fresh force solve over a
-filtered slice of the data.
+**v0.6 — likely next:**
+
+- **One-shot installer.** `interspace init <workspace>` that creates
+  the workspace folders, writes the launcher `.bat` / `.sh`, and
+  drops a desktop shortcut pointing at it — so a new operator goes
+  from clone to running lattice in one command.
+- **Runner enrichment.** Wire `speed_square.spurious_seam_score` into
+  a red runner discovery pass — runtime seam detection that catches
+  the spurious breaks the static heuristics miss.
+- **Operator accept/reject UI** for runner proposals. Live edges get
+  a one-click "accept" → moves to the persistent lattice; "reject" →
+  feeds back into the runner's confidence threshold per pattern type.
+- **`markdown_corpus` adapter** — one node per `.md` file, edges from
+  link references, frontmatter → tags.
 
 ## License
 
