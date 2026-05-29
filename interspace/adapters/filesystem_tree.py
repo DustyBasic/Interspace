@@ -171,12 +171,29 @@ def to_interspace_json(
                                 "weight": 1.0,
                             })
                         # Sequence (Pi local pointer N): paragraph[i] -> paragraph[i+1].
+                        # Carrier-typing: edges are "hard" when either endpoint is a
+                        # section_anchor (real structural break — chapter / numbered
+                        # section divider survived the split) or "soft" when both
+                        # endpoints are plain paragraphs (split happened on a blank
+                        # line only, which may or may not reflect real continuity).
+                        # Downstream seam-binding can read through soft carriers
+                        # when other signals agree, while hard carriers stay as
+                        # ground-truth structural boundaries.
                         for i in range(len(paragraph_nodes) - 1):
+                            a_meta = paragraph_nodes[i].get("meta") or {}
+                            b_meta = paragraph_nodes[i + 1].get("meta") or {}
+                            is_hard = (
+                                a_meta.get("kind") == "section_anchor"
+                                or b_meta.get("kind") == "section_anchor"
+                            )
                             edges.append({
                                 "source": paragraph_nodes[i]["id"],
                                 "target": paragraph_nodes[i + 1]["id"],
                                 "kind": "sequence",
                                 "weight": 1.0,
+                                "meta": {
+                                    "carrier_strength": "hard" if is_hard else "soft",
+                                },
                             })
                         continue
                 # Fallback: atomic file node

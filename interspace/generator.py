@@ -69,7 +69,12 @@ _PAGE_ID_PART_RE = re.compile(r"[^a-zA-Z0-9_]+")
 # and absorbs pairs separated by ≤ this gap that ALSO share a cluster and
 # lack any binding edge. Larger gaps treated as real section breaks.
 _PROVENANCE_SEAM_MAX_GAP = 3
-_PROVENANCE_BINDING_EDGE_KINDS = frozenset({"sequence", "stitch", "contains"})
+# Binding-edge kinds whose presence between a pair always blocks absorption
+# (true structural relationships — file→child containment, prior stitch
+# absorption). Sequence edges are handled separately so we can read through
+# SOFT carrier_strength (blank-line splits that may be spurious) while
+# still respecting HARD carrier_strength (section_anchor boundaries).
+_PROVENANCE_HARD_BINDING_KINDS = frozenset({"stitch", "contains"})
 
 # Seam-binding heuristics. Detect "spurious seams" — paragraph breaks
 # that artificially chop a continuous thought — and merge the pair into
@@ -311,6 +316,23 @@ def _bind_provenance_seams(
         if isinstance(d, str) and d:
             document_of[n["id"]] = d
 
+    # Index 2: file_type per source_file (from content_classifier output
+    # on file-anchor nodes). Used to skip absorption between two chat_turn
+    # nodes in files classified as chat_file — each blank-line "turn" in
+    # a conversation is structurally meaningful even without an explicit
+    # section_anchor, so soft carriers there shouldn't trigger absorption.
+    # Scene-level consolidation of chat_turn runs is scoped to a later
+    # generator pass (v0.6.4 scene-extraction); this pass conservatively
+    # leaves chat structure intact.
+    file_type_by_source: dict[str, str] = {}
+    for n in nodes:
+        meta = n.get("meta") or {}
+        if meta.get("kind") == "file":
+            ft = meta.get("file_type")
+            sf = meta.get("source_file") or meta.get("path")
+            if isinstance(ft, str) and isinstance(sf, str):
+                file_type_by_source[sf] = ft
+
     # Index 2: already-bound pairs (any binding-class edge means the
     # earlier passes already linked them — nothing to absorb).
     def _edge_endpoint(e: dict[str, Any], key: str) -> str:
@@ -319,15 +341,47 @@ def _bind_provenance_seams(
             return v.get("id", "") or ""
         return v or ""
 
+    # Node-kind index for deriving carrier_strength on legacy sequence
+    # edges that lack the meta annotation (rendered against an input.json
+    # produced by a pre-carrier-typing adapter run).
+    node_kind_by_id: dict[str, str] = {}
+    for n in nodes:
+        k = (n.get("meta") or {}).get("kind")
+        if isinstance(k, str):
+            node_kind_by_id[n["id"]] = k
+
     already_linked: set[tuple[str, str]] = set()
     for e in edges:
-        if e.get("kind") not in _PROVENANCE_BINDING_EDGE_KINDS:
-            continue
+        kind = e.get("kind")
         s = _edge_endpoint(e, "source")
         t = _edge_endpoint(e, "target")
-        if s and t:
-            already_linked.add((s, t))
-            already_linked.add((t, s))
+        if not (s and t):
+            continue
+        if kind in _PROVENANCE_HARD_BINDING_KINDS:
+            blocking = True
+        elif kind == "sequence":
+            # Sequence edges block only if carrier is HARD (section_anchor
+            # endpoint — real structural boundary). SOFT carriers
+            # (blank-line splits between two plain paragraphs) are read
+            # through, so the seam pass can absorb pairs the adapter
+            # happened to split on whitespace alone. When the edge lacks
+            # carrier_strength annotation (legacy data), derive it from
+            # endpoint kinds: section_anchor on either side ⇒ hard.
+            emeta = e.get("meta") or {}
+            cs = emeta.get("carrier_strength")
+            if cs is None:
+                s_kind = node_kind_by_id.get(s)
+                t_kind = node_kind_by_id.get(t)
+                cs = "hard" if (
+                    s_kind == "section_anchor" or t_kind == "section_anchor"
+                ) else "soft"
+            blocking = cs != "soft"
+        else:
+            blocking = False
+        if not blocking:
+            continue
+        already_linked.add((s, t))
+        already_linked.add((t, s))
 
     # Group position-bearing nodes by source_file.
     by_file: dict[str, list[tuple[int, int, dict[str, Any]]]] = defaultdict(list)
@@ -346,6 +400,13 @@ def _bind_provenance_seams(
 
     for sf, items in by_file.items():
         items.sort(key=lambda t: (t[0], t[1]))
+        # File-type-aware skip: chat_file content's blank-line "turns" are
+        # structurally significant even without section_anchors; absorbing
+        # consecutive chat_turn nodes would erase real conversation
+        # boundaries. Defer chat_file consolidation to the scene-extraction
+        # pass (v0.6.4) which uses topic-shift signals as its boundary.
+        sf_file_type = file_type_by_source.get(sf)
+        is_chat_file = sf_file_type == "chat_file"
         for i in range(len(items) - 1):
             if items[i][2]["id"] in merged:
                 continue
@@ -367,6 +428,19 @@ def _bind_provenance_seams(
             seg_a = a_meta.get("conversation_segment_id")
             seg_b = b_meta.get("conversation_segment_id")
             if seg_a is not None and seg_b is not None and seg_a != seg_b:
+                continue
+            # Chat-file exception — preserve all chat-turn pairs. In a
+            # chat_file the blank-line splits ARE the turn boundaries,
+            # structurally meaningful even without section_anchors. The
+            # classifier tags these with meta.content_type="chat_turn"
+            # (while meta.kind stays "paragraph" — chat_turn is a
+            # CLASSIFICATION, not a separate node kind). Soft carriers
+            # between two chat_turn-classified paragraphs are real
+            # conversation boundaries, not spurious seams.
+            if is_chat_file and (
+                a_meta.get("content_type") == "chat_turn"
+                or b_meta.get("content_type") == "chat_turn"
+            ):
                 continue
             # Co-membership filter — must share a cluster OR a document.
             # Either alone is a strong same-lineage signal; both makes the
