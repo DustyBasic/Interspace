@@ -61,6 +61,16 @@ _PAGE_CONSOLIDATE_SHORT_CHARS = 120
 _PAGE_CONSOLIDATE_MIN_RUN = 2
 _PAGE_ID_PART_RE = re.compile(r"[^a-zA-Z0-9_]+")
 
+# Provenance-seam gap tolerance. After the content-rule seam pass and
+# short-run page consolidation have run, some adjacent-in-source pairs
+# remain with small index gaps (1-3 positions) — leftovers where the
+# earlier passes absorbed a neighbor and left a hole. The provenance-seam
+# pass walks paragraph/chat_turn/page nodes by position within source_file
+# and absorbs pairs separated by ≤ this gap that ALSO share a cluster and
+# lack any binding edge. Larger gaps treated as real section breaks.
+_PROVENANCE_SEAM_MAX_GAP = 3
+_PROVENANCE_BINDING_EDGE_KINDS = frozenset({"sequence", "stitch", "contains"})
+
 # Seam-binding heuristics. Detect "spurious seams" — paragraph breaks
 # that artificially chop a continuous thought — and merge the pair into
 # a single node, eliminating the noise atom.
@@ -207,6 +217,203 @@ def _bind_spurious_seams(
 
     # Re-route edges. Resolve chains: if A merged → B and B merged → C,
     # then an edge to A becomes an edge to C.
+    def _ep(e: dict[str, Any], key: str) -> str:
+        v = e.get(key)
+        if isinstance(v, dict):
+            return v.get("id", "") or ""
+        return v or ""
+
+    def _resolve(node_id: str) -> str:
+        seen_local: set[str] = set()
+        while node_id in merged and node_id not in seen_local:
+            seen_local.add(node_id)
+            node_id = merged[node_id]
+        return node_id
+
+    new_edges: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str, str]] = set()
+    edges_dropped = 0
+    for e in edges:
+        s = _resolve(_ep(e, "source"))
+        t = _resolve(_ep(e, "target"))
+        if s == t or not s or not t:
+            edges_dropped += 1
+            continue
+        key = (s, t, e.get("kind", "related"))
+        if key in seen_keys:
+            edges_dropped += 1
+            continue
+        seen_keys.add(key)
+        ne = dict(e)
+        ne["source"] = s
+        ne["target"] = t
+        new_edges.append(ne)
+    edges[:] = new_edges
+    return (pairs_merged, edges_dropped)
+
+
+def _node_position_range(meta: dict[str, Any]) -> tuple[int, int] | None:
+    """Return (start, end) source-file position range covered by a node,
+    or None if the node isn't position-bearing. Unifies the schema across
+    paragraph/chat_turn (single index) and page (start/end range) so the
+    provenance-seam walk can compare them apples-to-apples."""
+    kind = meta.get("kind")
+    if kind in ("paragraph", "chat_turn"):
+        idx = meta.get("paragraph_index")
+        if isinstance(idx, int):
+            return (idx, idx)
+        return None
+    if kind == "page":
+        start = meta.get("paragraph_index_start")
+        end = meta.get("paragraph_index_end")
+        if isinstance(start, int) and isinstance(end, int):
+            return (start, end)
+        return None
+    return None
+
+
+def _bind_provenance_seams(
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+) -> tuple[int, int]:
+    """Post-consolidation seam-binding pass that operates on PROVENANCE
+    METADATA rather than content rules. Walks paragraph/chat_turn/page
+    nodes by (source_file, position range). For pairs that are adjacent
+    in source position (gap ≤ _PROVENANCE_SEAM_MAX_GAP), share a cluster,
+    and have NO binding edge (sequence/stitch/contains) linking them, the
+    earlier node A is absorbed INTO the later node B.
+
+    Catches the seams the content-rule pass at `_bind_spurious_seams`
+    misses — long-paragraph continuations, cross-content-type joins,
+    holes left by prior consolidation chains. The same gap-detection
+    logic the live runner uses to surface seam SUGGESTIONS now actually
+    writes those seams into the persisted substrate at render time.
+
+    Iteration walks sorted pairs left-to-right; chains collapse naturally
+    because B's range grows to cover A, and the merged-id map is checked
+    so chains route to the final survivor.
+
+    Returns (pairs_merged, edges_dropped).
+    """
+    from collections import defaultdict
+
+    # Index 1: cluster + document membership per node. Co-membership in
+    # either is a hard filter. (Schema: nodes carry `cluster` as a singular
+    # string and optionally `document` from the v0.5 document-anchor pass —
+    # not `clusters` plural. The runner uses the same fields.)
+    cluster_of: dict[str, str] = {}
+    document_of: dict[str, str] = {}
+    for n in nodes:
+        c = n.get("cluster")
+        if isinstance(c, str) and c:
+            cluster_of[n["id"]] = c
+        d = n.get("document")
+        if isinstance(d, str) and d:
+            document_of[n["id"]] = d
+
+    # Index 2: already-bound pairs (any binding-class edge means the
+    # earlier passes already linked them — nothing to absorb).
+    def _edge_endpoint(e: dict[str, Any], key: str) -> str:
+        v = e.get(key)
+        if isinstance(v, dict):
+            return v.get("id", "") or ""
+        return v or ""
+
+    already_linked: set[tuple[str, str]] = set()
+    for e in edges:
+        if e.get("kind") not in _PROVENANCE_BINDING_EDGE_KINDS:
+            continue
+        s = _edge_endpoint(e, "source")
+        t = _edge_endpoint(e, "target")
+        if s and t:
+            already_linked.add((s, t))
+            already_linked.add((t, s))
+
+    # Group position-bearing nodes by source_file.
+    by_file: dict[str, list[tuple[int, int, dict[str, Any]]]] = defaultdict(list)
+    for n in nodes:
+        meta = n.get("meta") or {}
+        sf = meta.get("source_file")
+        if not sf:
+            continue
+        rng = _node_position_range(meta)
+        if rng is None:
+            continue
+        by_file[sf].append((rng[0], rng[1], n))
+
+    merged: dict[str, str] = {}  # absorbed_id → survivor_id
+    pairs_merged = 0
+
+    for sf, items in by_file.items():
+        items.sort(key=lambda t: (t[0], t[1]))
+        for i in range(len(items) - 1):
+            if items[i][2]["id"] in merged:
+                continue
+            a_start, a_end, a = items[i]
+            b_start, b_end, b = items[i + 1]
+            # Provenance adjacency with small-gap tolerance.
+            gap = b_start - a_end - 1
+            if gap < 0 or gap > _PROVENANCE_SEAM_MAX_GAP:
+                continue
+            # Skip if a binding edge already connects them.
+            if (a["id"], b["id"]) in already_linked:
+                continue
+            a_meta = a.get("meta") or {}
+            b_meta = b.get("meta") or {}
+            # Never bind across a section_anchor (meaningful structural
+            # boundary) or a conversation_segment_id change.
+            if a_meta.get("kind") == "section_anchor" or b_meta.get("kind") == "section_anchor":
+                continue
+            seg_a = a_meta.get("conversation_segment_id")
+            seg_b = b_meta.get("conversation_segment_id")
+            if seg_a is not None and seg_b is not None and seg_a != seg_b:
+                continue
+            # Co-membership filter — must share a cluster OR a document.
+            # Either alone is a strong same-lineage signal; both makes the
+            # binding confident enough to absorb at render time.
+            ca = cluster_of.get(a["id"])
+            cb = cluster_of.get(b["id"])
+            da = document_of.get(a["id"])
+            db = document_of.get(b["id"])
+            same_cluster = ca is not None and ca == cb
+            same_document = da is not None and da == db
+            if not (same_cluster or same_document):
+                continue
+            # Absorb A INTO B.
+            a_content = a_meta.get("content") or ""
+            b_content = b_meta.get("content") or ""
+            if a_content and b_content:
+                merged_content = a_content.rstrip() + "\n\n" + b_content.lstrip()
+            else:
+                merged_content = a_content or b_content
+            b_meta["content"] = merged_content
+            b_meta["char_count"] = len(merged_content)
+            # Extend B's covered range to include A.
+            existing_start = b_meta.get("paragraph_index_start")
+            if existing_start is None or a_start < existing_start:
+                b_meta["paragraph_index_start"] = a_start
+            existing_end = b_meta.get("paragraph_index_end")
+            if existing_end is None or b_end > existing_end:
+                b_meta["paragraph_index_end"] = b_end
+            # If A was a page and B was a single-paragraph, promote B to page.
+            if a_meta.get("kind") == "page" and b_meta.get("kind") in ("paragraph", "chat_turn"):
+                b_meta["kind"] = "page"
+                b_tags = b.get("tags") or []
+                if "page" not in b_tags:
+                    b["tags"] = list(b_tags) + ["page"]
+            # Refresh sig128 to reflect new content.
+            if "sig128" in b_meta or "sig128" in a_meta:
+                b_meta["sig128"] = fnv1a_128_hex(merged_content)
+            merged[a["id"]] = b["id"]
+            pairs_merged += 1
+
+    if not merged:
+        return (0, 0)
+
+    # Remove absorbed nodes.
+    nodes[:] = [n for n in nodes if n["id"] not in merged]
+
+    # Re-route edges, collapsing chains (A→B→C) to the final survivor.
     def _ep(e: dict[str, Any], key: str) -> str:
         v = e.get(key)
         if isinstance(v, dict):
@@ -734,6 +941,22 @@ def render_pages(
         print(
             f"consolidation: {_frags_removed} short fragments → {_pages_added} pages "
             f"(net -{_net} nodes, {_edges_dropped} internal edges dissolved)",
+            file=sys.stderr,
+        )
+
+    # Pass 3: provenance-seam binding. Walks post-consolidation
+    # paragraph/chat_turn/page nodes by source-file position and absorbs
+    # adjacent pairs (small gap tolerance, shared cluster, no existing
+    # binding edge). Catches what the content-rule + short-run passes
+    # leave on the table — long-paragraph continuations, holes left by
+    # absorption chains, cross-content-type joins. Persists the seams
+    # the live runner was previously only able to surface as transient
+    # SSE suggestions.
+    _prov_merged, _prov_edges = _bind_provenance_seams(nodes, edges)
+    if _prov_merged:
+        print(
+            f"provenance:   {_prov_merged} adjacent-in-source pairs absorbed "
+            f"(-{_prov_merged} nodes, {_prov_edges} duplicate edges dropped)",
             file=sys.stderr,
         )
 
