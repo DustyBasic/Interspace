@@ -43,7 +43,6 @@ from typing import Any, Callable
 from collections import defaultdict
 
 from .cross_refs import extract_cross_references, fnv1a_128_hex
-from .speed_square import spurious_seam_score
 
 
 # Discovery cadence per runner. Jitter applied each cycle so the four don't
@@ -66,14 +65,23 @@ _RED_DUPLICATE_MIN_CHARS = 80
 # get rejoined via `stitch` edges so the operator can read the recovered
 # context string instead of disjoint fragments.
 _RED_SHORT_CHARS = 120
-# Seam pass: confidence threshold above which a `spurious_seam` edge is
-# emitted. The static generator pass (`_bind_spurious_seams`) already
-# absorbed the high-precision cases at render time using binary rules;
-# this runtime pass uses `speed_square.spurious_seam_score`'s continuous
-# compound (continuation + lexical-chain + shingle + char-class-shift) to
-# find what the static heuristics missed. 0.55 sits between speed_square's
-# "cautious" (0.5) and "aggressive" (0.7) recommended cutoffs.
-_RED_SEAM_THRESHOLD = 0.55
+# Seam pass operates on PROVENANCE METADATA in node headers — `source_file`
+# + `paragraph_index` (paragraph/chat_turn nodes) or `paragraph_index_start/end`
+# (page nodes from generator consolidation). A spurious seam is a pair of
+# position-adjacent nodes in the same source_file that lacks a binding edge
+# (sequence / stitch / contains). One signal = candidate; multi-signal
+# (provenance + cluster co-membership, or provenance + near-duplicate
+# co-detection) = confirmed. Content-scoring fallback is intentionally NOT
+# used here — the rendered lattice strips `meta.content` for size; the
+# generator's static `_bind_spurious_seams` pass already handles the cases
+# that need content to decide.
+_RED_SEAM_BINDING_EDGE_KINDS = frozenset({"sequence", "stitch", "contains"})
+# Maximum position-gap between a pair to still count as provenance-adjacent.
+# 0 = immediate neighbors. Larger values catch the case where consolidation
+# absorbed an intermediate paragraph and the re-routed sequence edge should
+# now jump the gap — if it doesn't, that's the seam. Beyond this threshold,
+# the gap is treated as a real section break, not a seam candidate.
+_RED_SEAM_MAX_GAP = 5
 # Per-cycle broadcast cap. Red can find tens of thousands of duplicate edges
 # in one pass; broadcasting them all at once overwhelms the SSE client queue
 # (which caps at 200) and floods the lattice with simultaneous edge pulses.
@@ -323,14 +331,15 @@ class LiveRunnerState:
         `stitch` edges between consecutive members of each run. Recovers
         the context string that paragraph-splitting chopped apart.
 
-        Pass C — seam detection: walk adjacent paragraph pairs per
-        source_file and score the break with `spurious_seam_score`
-        (continuation_likelihood + lexical_chain_directional + shingle_overlap
-        - char_class_shift). The static generator pass already absorbed
-        the high-precision cases at render time; this pass catches the
-        less-obvious seams the static heuristics miss (long-paragraph
-        continuations, lexical chains without anaphora cues, literal
-        text overlap). Above threshold, emit `spurious_seam` edges.
+        Pass C — provenance-walk seam detection: group paragraph + page +
+        chat_turn nodes by `source_file`, sort by position-range, and emit
+        a `spurious_seam` candidate edge for every consecutive-in-source
+        pair that LACKS an existing binding edge (sequence / stitch /
+        contains). Single-signal (provenance-adjacency alone) = candidate
+        weight; multi-signal (provenance + shared cluster, or provenance +
+        near-duplicate co-detection) = confirmed weight. Content stays at
+        generator time where the classifier already has it; this pass is
+        pure metadata graph-structure analysis.
 
         All three passes share the per-cycle broadcast cap upstream so no
         single pass starves the others when buckets are huge.
@@ -449,70 +458,157 @@ class LiveRunnerState:
     def _discover_red_seams(
         self, nodes: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Score every adjacent paragraph pair per source_file with the
-        compound `spurious_seam_score` and emit `spurious_seam` edges
-        above the threshold.
+        """Provenance-walk seam detection.
 
-        Walks paragraph + chat_turn nodes. Skips pairs that cross a
-        section_anchor or a conversation_segment_id change — those are
-        meaningful boundaries that even strong continuation cues should
-        not erase (parallel to the generator's NEVER-bind rules).
+        Walks paragraph + chat_turn + page nodes. Each carries a position
+        range in its `source_file`:
+          - paragraph / chat_turn: single index in `meta.paragraph_index`
+          - page (post-consolidation): `meta.paragraph_index_start..end`
 
-        The score and short-prev hint travel on the edge meta so the
-        downstream visualization can render seam confidence and the
-        operator's accept/reject UI can rank candidates.
+        For each source_file, sort by start position and look at consecutive
+        pairs where node A's end + 1 == node B's start. That pair is
+        provenance-adjacent in the source. If NO existing binding edge
+        (sequence / stitch / contains) links them, emit a `spurious_seam`
+        candidate — the consolidation pipeline left them as separate
+        unstitched nodes even though they neighbor in the source.
+
+        Hard never-bind: if conversation_segment_id is set on both and
+        differs, that's a real segment boundary; skip.
+
+        Multi-signal confidence:
+          - provenance-adjacency alone        → weight 0.6, confidence "candidate"
+          - + shared cluster                  → weight 0.85, confidence "confirmed"
+          - + near-duplicate sig128 collision → weight 0.9, confidence "confirmed"
+
+        Edge meta carries the source_file + both position ranges + the list
+        of fired signals so the operator UI can rank candidates and trace
+        which detectors agreed.
 
         Per-cycle cap shares the global red broadcast budget upstream.
         """
-        by_file: dict[str, list[tuple[int, dict[str, Any]]]] = defaultdict(list)
+        # Existing-edge index (skip what's already linked).
+        lattice = self._lattice_cache or {}
+        already_linked: set[tuple[str, str]] = set()
+        for e in lattice.get("edges", []) or []:
+            if e.get("kind") not in _RED_SEAM_BINDING_EDGE_KINDS:
+                continue
+            s = self._edge_endpoint(e, "source")
+            t = self._edge_endpoint(e, "target")
+            if s and t:
+                already_linked.add((s, t))
+                already_linked.add((t, s))
+
+        # Document co-membership index — `node.document` is the v0.2.7
+        # nested compound mid-tier (file → document_anchor → paragraph).
+        # When both endpoints of a candidate seam share a document, the
+        # consolidation pipeline already grouped them as belonging to the
+        # same source document → meaningful structural co-signal.
+        document_of: dict[str, str] = {}
+        for n in nodes:
+            d = n.get("document")
+            if isinstance(d, str) and d:
+                document_of[n["id"]] = d
+
+        # sig128 index for cross-signal corroboration (near-duplicate
+        # co-detection — if A and B also share a sig128, that strengthens
+        # the seam beyond provenance alone).
+        sig_of: dict[str, str] = {}
+        for n in nodes:
+            sig = (n.get("meta") or {}).get("sig128")
+            if isinstance(sig, str) and sig:
+                sig_of[n["id"]] = sig
+
+        # Group by (source_file, cluster) so multi-adapter ingestion of the
+        # same source path (e.g. one file walked by both bcfs and scfs
+        # adapters) doesn't produce cross-adapter false seams between the
+        # two copies' paragraphs. Each adapter's lineage is its own walk.
+        by_lineage: dict[tuple[str, str], list[tuple[int, int, dict[str, Any]]]] = defaultdict(list)
         for n in nodes:
             meta = n.get("meta") or {}
-            if meta.get("kind") not in ("paragraph", "chat_turn"):
+            kind = meta.get("kind")
+            if kind not in ("paragraph", "chat_turn", "page"):
                 continue
             sf = meta.get("source_file")
-            idx = meta.get("paragraph_index")
-            if not sf or not isinstance(idx, int):
+            cluster = n.get("cluster") or ""
+            if not sf:
                 continue
-            by_file[sf].append((idx, n))
+            if kind == "page":
+                start = meta.get("paragraph_index_start")
+                end = meta.get("paragraph_index_end")
+            else:
+                start = meta.get("paragraph_index")
+                end = start
+            if not isinstance(start, int) or not isinstance(end, int):
+                continue
+            by_lineage[(sf, cluster)].append((start, end, n))
 
         edges: list[dict[str, Any]] = []
-        for sf, items in by_file.items():
-            items.sort(key=lambda t: t[0])
+        for (sf, cluster), items in by_lineage.items():
+            items.sort(key=lambda t: (t[0], t[1]))
             for i in range(len(items) - 1):
-                a_idx, a = items[i]
-                b_idx, b = items[i + 1]
-                if b_idx != a_idx + 1:
+                a_start, a_end, a = items[i]
+                b_start, b_end, b = items[i + 1]
+                # Provenance adjacency: gap between A and B is within
+                # tolerance. gap=0 = immediate neighbor; gap>0 = consolidation
+                # likely removed something between, expect a re-routed
+                # sequence edge to bridge them. Beyond max-gap, treat as
+                # real section break.
+                gap = b_start - a_end - 1
+                if gap < 0 or gap > _RED_SEAM_MAX_GAP:
                     continue
+                # Hard never-bind: conversation-segment change.
                 a_meta = a.get("meta") or {}
                 b_meta = b.get("meta") or {}
-                # Hard never-bind boundaries (parallel to generator pass).
                 seg_a = a_meta.get("conversation_segment_id")
                 seg_b = b_meta.get("conversation_segment_id")
                 if seg_a is not None and seg_b is not None and seg_a != seg_b:
                     continue
-                a_text = a_meta.get("content") or ""
-                b_text = b_meta.get("content") or ""
-                if not a_text or not b_text:
+                # Already linked — pipeline did its job; nothing to suggest.
+                if (a["id"], b["id"]) in already_linked:
                     continue
-                a_short = bool(
-                    isinstance(a_meta.get("char_count"), int)
-                    and a_meta["char_count"] < _RED_SHORT_CHARS
-                )
-                score = spurious_seam_score(a_text, b_text, prev_short=a_short)
-                if score < _RED_SEAM_THRESHOLD:
-                    continue
+                # Score signals. Cluster co-membership is implicit (we
+                # grouped by it above), so it's a hard filter, not a signal.
+                signals = ["provenance"]
+                da = document_of.get(a["id"])
+                db = document_of.get(b["id"])
+                if da and db and da == db:
+                    signals.append("document")
+                sa = sig_of.get(a["id"])
+                sb = sig_of.get(b["id"])
+                if sa and sb and sa == sb:
+                    signals.append("sig128")
+                if len(signals) >= 3:
+                    weight, confidence = 0.9, "confirmed"
+                elif len(signals) == 2:
+                    weight, confidence = 0.75, "corroborated"
+                else:
+                    weight, confidence = 0.6, "candidate"
                 edges.append({
                     "source": a["id"],
                     "target": b["id"],
                     "kind": "spurious_seam",
-                    "weight": round(score, 3),
+                    "weight": weight,
                     "meta": {
                         "via": "red-runner-seam",
-                        "score": round(score, 3),
-                        "prev_short": a_short,
+                        "signals": signals,
+                        "confidence": confidence,
+                        "source_file": sf,
+                        "cluster": cluster,
+                        "a_range": [a_start, a_end],
+                        "b_range": [b_start, b_end],
+                        "gap": gap,
                     },
                 })
         return edges
+
+    @staticmethod
+    def _edge_endpoint(edge: dict[str, Any], key: str) -> str:
+        """Edge endpoints can be string IDs or {id: ...} dicts depending on
+        adapter. Normalize to string id, empty string if not resolvable."""
+        v = edge.get(key)
+        if isinstance(v, dict):
+            return v.get("id", "") or ""
+        return v or ""
 
 
 class MultiLiveRunnerState:
