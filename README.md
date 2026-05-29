@@ -74,27 +74,42 @@ desktop app. To run it on a fresh machine you need:
 - **A WebGL-capable browser** (modern Chrome / Firefox / Edge / Safari)
   for the 3D lattice view.
 
-There is no installer yet — clone, `pip install -r requirements.txt`,
-write a launcher batch, point a desktop shortcut at it. A one-shot
-installer **will ship in upcoming releases**:
+Clone, `pip install -r requirements.txt`, then `python -m interspace
+init <workspace>` to scaffold a working workspace. Future packaging
+releases continue from there:
 
-- **v0.6** — `interspace init <workspace>` command: scaffolds the
-  workspace folder layout, writes the launcher `.bat` (Windows) /
-  `.sh` / `.command` (macOS, Linux), generates the desktop shortcut,
-  renders a starter sample so first-launch shows something.
-- **v0.7** — `interspace ingest <folder>` for one-command corpus
-  walk-and-render, removing the multi-step adapter call.
-- **v0.8+** — bundled-Python build (pyinstaller / nuitka) so an
-  operator can download a single executable, double-click, and have
-  a working Interspace without ever touching `pip`.
+- **v0.6 (shipped)** — `interspace init <workspace>` command:
+  scaffolds the workspace folder layout, writes self-locating
+  launchers (`.bat` Windows / `.sh` Linux / `.command` macOS) with
+  baked PYTHONPATH so the workspace can live anywhere, seeds and
+  renders the public sample so first-launch shows a non-empty hub.
+- **v0.7 (planned)** — `interspace ingest <folder>` for one-command
+  corpus walk-and-render, removing the multi-step adapter call.
+- **v0.8+ (planned)** — bundled-Python build (pyinstaller / nuitka)
+  so an operator can download a single executable, double-click, and
+  have a working Interspace without ever touching `pip`.
 
-Until then, the launcher-batch pattern below is the recommended
-operating mode.
+The `interspace init` workspace pattern is the recommended operating
+mode; the hand-rolled launcher pattern below stays documented as
+reference / for users who want to customize the launch.
 
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
+python -m interspace init ./my-workspace
+# scaffolds folders, writes launchers, renders the public sample,
+# and prints the path to the platform-native launcher
+```
+
+The launcher boots the server (idempotently — re-clicks don't stack
+servers) and opens the hub. Add your own data into the workspace via
+the per-platform render commands shown in the workspace README.
+
+Alternative — render the public sample directly without scaffolding a
+workspace:
+
+```bash
 python -m interspace render samples/example.json -o samples/rendered_example/
 python -m interspace serve samples/rendered_example/ --live
 # browser opens automatically; the live runners begin discovering
@@ -275,16 +290,27 @@ ships polymathic pattern-rec primitives (continuation_likelihood,
 lexical_chain_density, shingle_overlap, sig128_prefix_collision,
 char_class_shift, spurious_seam_score) for runners to compose.
 
-**v0.6 — committed.** Will ship:
+**v0.6 — partial.** Shipped:
 
 - **One-shot installer.** `interspace init <workspace>` creates the
-  workspace folders, writes the launcher `.bat` / `.sh` / `.command`,
-  and drops a desktop shortcut pointing at it — so a new operator
-  goes from clone to running lattice in one command on Windows,
-  macOS, or Linux.
-- **Runner enrichment.** Wire `speed_square.spurious_seam_score`
-  into a red runner discovery pass — runtime seam detection that
-  catches the spurious breaks the static heuristics miss.
+  workspace folders (`local/{inputs,rendered,launchers,adapters}/`),
+  writes self-locating cross-platform launchers (`.bat` / `.sh` /
+  `.command`) with PYTHONPATH baked at init time so the workspace
+  can live anywhere on the filesystem, seeds the public sample, and
+  builds an initial hub — so a new operator goes from clone to
+  running lattice in one command on Windows, macOS, or Linux.
+- **Runner enrichment.** Red runner gained a third discovery pass:
+  `_discover_red_seams` walks adjacent paragraph pairs per source_file
+  and scores each break with `speed_square.spurious_seam_score`
+  (continuation_likelihood + lexical_chain_directional + shingle_overlap
+  − char_class_shift). Above threshold (0.55), emits a `spurious_seam`
+  edge tagged with the score and short-prev hint. Catches the
+  continuations the static generator pass leaves on the table
+  (long-paragraph mid-thought + anaphoric next, lexical-chain
+  continuations without obvious cues).
+
+Still on the v0.6 list:
+
 - **Operator accept/reject UI** for runner proposals. Live edges
   get a one-click "accept" → moves to the persistent lattice;
   "reject" → feeds back into the runner's confidence threshold per

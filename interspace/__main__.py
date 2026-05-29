@@ -1,6 +1,7 @@
 """CLI entry point for Interspace.
 
 Usage:
+    python -m interspace init <workspace> [--port N] [--name NAME]
     python -m interspace render <input.json> --output <dir>
     python -m interspace serve <rendered_dir> [--port N] [--no-open]
     python -m interspace --version
@@ -23,6 +24,44 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"interspace {__version__}")
 
     sub = p.add_subparsers(dest="command", required=True)
+
+    init = sub.add_parser(
+        "init",
+        help=(
+            "Scaffold a new Interspace workspace at <workspace>: folder layout, "
+            "cross-platform launchers (.bat/.sh/.command), and (by default) a "
+            "rendered copy of the public sample so the first launch is non-empty."
+        ),
+    )
+    init.add_argument(
+        "workspace",
+        type=Path,
+        help="Path to the workspace directory to create (or scaffold into).",
+    )
+    init.add_argument(
+        "--port",
+        type=int,
+        default=8780,
+        help="Port the launcher will start the server on (default 8780).",
+    )
+    init.add_argument(
+        "--name",
+        type=str,
+        default="interspace",
+        help='Base filename for the launcher scripts (default "interspace").',
+    )
+    init.add_argument(
+        "--no-sample",
+        dest="include_sample",
+        action="store_false",
+        help="Skip seeding + rendering the public sample.",
+    )
+    init.set_defaults(include_sample=True)
+    init.add_argument(
+        "--force",
+        action="store_true",
+        help="Scaffold into the target even if it exists and is non-empty.",
+    )
 
     render = sub.add_parser("render", help="Render an input JSON to static HTML pages.")
     render.add_argument("input", type=Path, help="Path to Interspace JSON input file.")
@@ -112,6 +151,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "init":
+        from .installer import init_workspace
+
+        return init_workspace(
+            workspace=args.workspace,
+            port=args.port,
+            name=args.name,
+            include_sample=args.include_sample,
+            force=args.force,
+        )
 
     if args.command == "render":
         # Lazy import so --version / --help don't pay the cost.

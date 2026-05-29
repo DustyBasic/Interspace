@@ -43,6 +43,7 @@ from typing import Any, Callable
 from collections import defaultdict
 
 from .cross_refs import extract_cross_references, fnv1a_128_hex
+from .speed_square import spurious_seam_score
 
 
 # Discovery cadence per runner. Jitter applied each cycle so the four don't
@@ -65,6 +66,14 @@ _RED_DUPLICATE_MIN_CHARS = 80
 # get rejoined via `stitch` edges so the operator can read the recovered
 # context string instead of disjoint fragments.
 _RED_SHORT_CHARS = 120
+# Seam pass: confidence threshold above which a `spurious_seam` edge is
+# emitted. The static generator pass (`_bind_spurious_seams`) already
+# absorbed the high-precision cases at render time using binary rules;
+# this runtime pass uses `speed_square.spurious_seam_score`'s continuous
+# compound (continuation + lexical-chain + shingle + char-class-shift) to
+# find what the static heuristics missed. 0.55 sits between speed_square's
+# "cautious" (0.5) and "aggressive" (0.7) recommended cutoffs.
+_RED_SEAM_THRESHOLD = 0.55
 # Per-cycle broadcast cap. Red can find tens of thousands of duplicate edges
 # in one pass; broadcasting them all at once overwhelms the SSE client queue
 # (which caps at 200) and floods the lattice with simultaneous edge pulses.
@@ -314,10 +323,19 @@ class LiveRunnerState:
         `stitch` edges between consecutive members of each run. Recovers
         the context string that paragraph-splitting chopped apart.
 
-        Both passes share the per-cycle broadcast cap upstream so neither
-        starves the other when buckets are huge.
+        Pass C — seam detection: walk adjacent paragraph pairs per
+        source_file and score the break with `spurious_seam_score`
+        (continuation_likelihood + lexical_chain_directional + shingle_overlap
+        - char_class_shift). The static generator pass already absorbed
+        the high-precision cases at render time; this pass catches the
+        less-obvious seams the static heuristics miss (long-paragraph
+        continuations, lexical chains without anaphora cues, literal
+        text overlap). Above threshold, emit `spurious_seam` edges.
 
-        Future expansion (deferred):
+        All three passes share the per-cycle broadcast cap upstream so no
+        single pass starves the others when buckets are huge.
+
+        Future expansion (deferred to v0.7):
           - Citation/source repair: re-run R1/R3 cross-ref regex against
             paragraphs that didn't resolve at first pass.
           - Content_type re-classification: re-run content_classifier on
@@ -325,6 +343,7 @@ class LiveRunnerState:
         edges: list[dict[str, Any]] = []
         edges.extend(self._discover_red_duplicates(nodes))
         edges.extend(self._discover_red_stitch(nodes))
+        edges.extend(self._discover_red_seams(nodes))
         return edges
 
     def _discover_red_duplicates(
@@ -426,6 +445,74 @@ class LiveRunnerState:
                 "weight": 1.0,
                 "meta": {"via": "red-runner-stitch", "run_size": len(run)},
             })
+
+    def _discover_red_seams(
+        self, nodes: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Score every adjacent paragraph pair per source_file with the
+        compound `spurious_seam_score` and emit `spurious_seam` edges
+        above the threshold.
+
+        Walks paragraph + chat_turn nodes. Skips pairs that cross a
+        section_anchor or a conversation_segment_id change — those are
+        meaningful boundaries that even strong continuation cues should
+        not erase (parallel to the generator's NEVER-bind rules).
+
+        The score and short-prev hint travel on the edge meta so the
+        downstream visualization can render seam confidence and the
+        operator's accept/reject UI can rank candidates.
+
+        Per-cycle cap shares the global red broadcast budget upstream.
+        """
+        by_file: dict[str, list[tuple[int, dict[str, Any]]]] = defaultdict(list)
+        for n in nodes:
+            meta = n.get("meta") or {}
+            if meta.get("kind") not in ("paragraph", "chat_turn"):
+                continue
+            sf = meta.get("source_file")
+            idx = meta.get("paragraph_index")
+            if not sf or not isinstance(idx, int):
+                continue
+            by_file[sf].append((idx, n))
+
+        edges: list[dict[str, Any]] = []
+        for sf, items in by_file.items():
+            items.sort(key=lambda t: t[0])
+            for i in range(len(items) - 1):
+                a_idx, a = items[i]
+                b_idx, b = items[i + 1]
+                if b_idx != a_idx + 1:
+                    continue
+                a_meta = a.get("meta") or {}
+                b_meta = b.get("meta") or {}
+                # Hard never-bind boundaries (parallel to generator pass).
+                seg_a = a_meta.get("conversation_segment_id")
+                seg_b = b_meta.get("conversation_segment_id")
+                if seg_a is not None and seg_b is not None and seg_a != seg_b:
+                    continue
+                a_text = a_meta.get("content") or ""
+                b_text = b_meta.get("content") or ""
+                if not a_text or not b_text:
+                    continue
+                a_short = bool(
+                    isinstance(a_meta.get("char_count"), int)
+                    and a_meta["char_count"] < _RED_SHORT_CHARS
+                )
+                score = spurious_seam_score(a_text, b_text, prev_short=a_short)
+                if score < _RED_SEAM_THRESHOLD:
+                    continue
+                edges.append({
+                    "source": a["id"],
+                    "target": b["id"],
+                    "kind": "spurious_seam",
+                    "weight": round(score, 3),
+                    "meta": {
+                        "via": "red-runner-seam",
+                        "score": round(score, 3),
+                        "prev_short": a_short,
+                    },
+                })
+        return edges
 
 
 class MultiLiveRunnerState:
