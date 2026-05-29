@@ -234,7 +234,11 @@ class LiveRunnerState:
         )
         # Cap broadcasts per cycle so large duplicate sets trickle out over
         # subsequent cycles rather than flooding the client queue (which
-        # caps at 200) in a single burst.
+        # caps at 200) in a single burst. Shuffle first so small-population
+        # edge kinds (e.g. 1.6K seams) get fair representation against
+        # large-population ones (e.g. 13K duplicates) instead of being
+        # starved by emission order.
+        random.shuffle(candidate_new)
         emit = candidate_new[:_RUNNER_BROADCAST_CAP_PER_CYCLE]
         # Mark only what we emit; the rest stay unknown so the next cycle
         # rediscovers and emits the next batch.
@@ -263,34 +267,6 @@ class LiveRunnerState:
     # ----------------------------------------------------------------
     # Discovery passes — one per runner kind
     # ----------------------------------------------------------------
-    def _run_one_cycle(self, runner_name: str) -> None:
-        data = self.lattice()
-        if not data:
-            return
-        nodes = data.get("nodes", [])
-        if not nodes:
-            return
-
-        discovered = self._discover(runner_name, nodes)
-        new_count = 0
-        for edge in discovered:
-            key = self._edge_key(edge)
-            if key in self.known_edge_keys:
-                continue
-            self.known_edge_keys.add(key)
-            self.broadcast({
-                "type": "edge_added",
-                "runner": runner_name,
-                "edge": edge,
-            })
-            new_count += 1
-        if new_count:
-            self.broadcast({
-                "type": "cycle_complete",
-                "runner": runner_name,
-                "added": new_count,
-            })
-
     def _discover(
         self, runner_name: str, nodes: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
